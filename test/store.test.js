@@ -16,6 +16,7 @@ test("safePath accepts nested notes and rejects escapes", () => {
   assert.equal(safePath("team/design doc.md"), "team/design doc.md");
   assert.equal(safePath("/leading.md"), "leading.md");
   assert.equal(safePath("a//b.md"), "a/b.md");
+  assert.equal(safePath("_probe/round-trip.md"), "_probe/round-trip.md");
   for (const bad of ["../x.md", "a/../b.md", ".hidden.md", "x.txt", "", "dir/.versions/x.md", "x.md/"]) {
     assert.throws(() => safePath(bad), BadPath, bad);
   }

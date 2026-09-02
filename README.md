@@ -85,8 +85,10 @@ preview, which publishes through the same API.
 | `GET` | `/n/<path>` | rendered page. `?v=<id>` renders an old version |
 | `GET` | `/raw/<path>` | the Markdown |
 | `GET` | `/healthz` | `{ ok, version, notes, writable, renders }`. `503` when not ok |
+| `GET` | `/llms.txt` | the API described in plain text for agents and tools, with this deployment's URL filled in |
 
-Paths are relative, may contain folders, and must end in `.md`. Files that are
+Paths are relative, may contain folders, and must end in `.md`. Segments may
+not start with a dot; `_drafts/x.md` is fine. Files that are
 not Markdown (images referenced from a note) are served from the same folder
 at `/n/<path>` and are inlined into the copied HTML.
 

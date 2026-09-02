@@ -113,6 +113,13 @@ export function createApp(opts = {}) {
       }
       if (p === "/vendor/mermaid.min.js" && req.method === "GET") return serveFile(res, MERMAID);
 
+      // Machine-readable description of the API, with this deployment's URL.
+      if (p === "/llms.txt" && req.method === "GET") {
+        const txt = (await fs.readFile(path.join(PUBLIC_DIR, "llms.txt"), "utf8"))
+          .replaceAll("{{PUBLIC_URL}}", publicUrl(req)).replaceAll("{{VERSION}}", pkg.version);
+        return send(res, 200, txt, "text/plain; charset=utf-8");
+      }
+
       if (p.startsWith("/n/") && req.method === "GET") {
         const rel = p.slice(3);
         if (!rel.endsWith(".md")) return serveFile(res, store.assetPath(rel));

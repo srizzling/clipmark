@@ -81,6 +81,15 @@ test("index lists notes and the mermaid bundle is served", async () => {
   assert.match(mm.headers.get("content-type"), /javascript/);
 });
 
+test("llms.txt describes the API with this deployment's URL", async () => {
+  const r = await fetch(`${base}/llms.txt`);
+  assert.equal(r.status, 200);
+  const txt = await r.text();
+  assert.match(txt, new RegExp(`PUT ${base.replaceAll(".", "\\.")}/api/notes/<path>`));
+  assert.doesNotMatch(txt, /\{\{/);
+  assert.match(txt, /Version: \d+\.\d+\.\d+/);
+});
+
 test("render endpoint previews without saving", async () => {
   const r = await fetch(`${base}/api/render`, { method: "POST", body: "> [!TIP]\n> yes\n" });
   assert.match(await r.text(), /data-panel-type="success"/);

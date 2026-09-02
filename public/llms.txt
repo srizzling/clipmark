@@ -1,0 +1,36 @@
+# clipmark
+
+> Markdown notes rendered as web pages that copy to the clipboard as rich text. Notes are plain `.md` files published over HTTP; every change is versioned. This file describes the API for agents and tools.
+
+Base URL: {{PUBLIC_URL}}
+Version: {{VERSION}}
+
+## Publishing
+
+- `PUT {{PUBLIC_URL}}/api/notes/<path>` with the Markdown as the request body creates or updates a note. `<path>` is relative, may contain folders, and must end in `.md`. Segments may contain letters, digits, `_`, `-`, `.`, and spaces, and may not start with `.`.
+- Send `Content-Type: text/markdown`. If the server has a token configured, send `Authorization: Bearer <token>`; without it you get `401`.
+- Response: `201` on create, `200` on update, JSON `{ path, changed, created, version, url }`. `changed: false` means the content was identical and no new version was recorded.
+- `DELETE {{PUBLIC_URL}}/api/notes/<path>` removes the current copy and keeps the history.
+
+Example:
+
+    curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: text/markdown" \
+         --data-binary @design.md {{PUBLIC_URL}}/api/notes/team/design.md
+
+## Reading
+
+- `GET {{PUBLIC_URL}}/api/notes` lists notes: `{ notes: [{ path, title, mtime, size, url }] }`.
+- `GET {{PUBLIC_URL}}/api/notes/<path>` returns `{ path, title, markdown, mtime, size, versions, url }`. Add `?v=<version id>` for an old version.
+- `GET {{PUBLIC_URL}}/api/notes/<path>/versions` returns `{ path, versions: [{ id, n, size }] }`, newest first.
+- `GET {{PUBLIC_URL}}/raw/<path>` returns the Markdown as `text/markdown`.
+- `GET {{PUBLIC_URL}}/n/<path>` is the rendered page for humans; `?v=<id>` renders a version.
+- `POST {{PUBLIC_URL}}/api/render` with Markdown in the body returns the HTML fragment without saving anything.
+- `GET {{PUBLIC_URL}}/healthz` returns `{ ok, version, notes, writable, renders }` and `503` when not ok.
+
+## Markdown that renders well
+
+GitHub-flavoured Markdown: headings, tables, fenced code with a language, task lists, strikethrough, footnotes, autolinks. Fenced ```` ```mermaid ```` blocks render as diagrams. `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]` and `> [!CAUTION]` blockquotes render as panels. Start a note with a single `# Title` line; it becomes the page title and the title in listings.
+
+## Source
+
+https://github.com/srizzling/clipmark

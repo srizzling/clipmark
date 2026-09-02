@@ -7,7 +7,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 const VERSIONS = ".versions";
-const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
+const SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._ -]*$/;
 
 export class BadPath extends Error {
   constructor(msg) { super(msg); this.status = 400; }

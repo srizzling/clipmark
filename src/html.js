@@ -64,7 +64,8 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
      ${h(publicUrl)}/api/notes/doc.md</code></pre>
     <p>Every change is kept: <code>GET /api/notes/doc.md/versions</code> lists them and
     <code>/n/doc.md?v=&lt;id&gt;</code> shows one. <code>DELETE /api/notes/doc.md</code> removes the
-    current copy and keeps the history. <code>GET /healthz</code> for monitoring.</p>
+    current copy and keeps the history. <code>GET /healthz</code> for monitoring.
+    The whole API in one page for tools and agents: <a href="/llms.txt">/llms.txt</a>.</p>
   </details>
 </main>`;
   return layout({ title: "Notes", siteTitle, body });
