@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import { timingSafeEqual } from "node:crypto";
 
 import { render, titleOf } from "./render.js";
-import { Store, BadPath } from "./store.js";
+import { Store, BadPath, BadSlug, SLUG_RE, RESERVED } from "./store.js";
 import { indexPage, notePage, editorPage, errorPage } from "./html.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +70,20 @@ export function createApp(opts = {}) {
   });
 
   const publicUrl = (req) => publicUrlEnv || `http://${req.headers.host || "localhost"}`;
+  const shortUrl = (req, slug) => `${publicUrl(req)}/${slug}`;
+  const pathUrl = (req, rel) => `${publicUrl(req)}/n/${encodeURI(rel)}`;
+  const withUrls = (req, n) => ({ ...n, url: shortUrl(req, n.slug), pathUrl: pathUrl(req, n.path) });
+
+  async function renderNote(req, res, rel, v) {
+    if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`);
+    const note = v ? await store.readVersion(rel, v) : await store.read(rel);
+    const versions = await store.versions(rel);
+    const html = render(note.markdown);
+    return send(res, 200, notePage({
+      siteTitle, note: { ...note, title: titleOf(note.markdown, rel) }, html, versions, viewing: v,
+      publicUrl: publicUrl(req), shortUrl: shortUrl(req, note.slug),
+    }));
+  }
 
   const serveFile = async (res, abs) => {
     let st;
@@ -109,9 +123,9 @@ export function createApp(opts = {}) {
       if (p.startsWith("/assets/") && req.method === "GET") {
         const rel = p.slice("/assets/".length);
         if (rel.includes("..") || rel.includes("/")) return fail(res, 404, "not found");
-        return serveFile(res, path.join(PUBLIC_DIR, rel));
+        return await serveFile(res, path.join(PUBLIC_DIR, rel));
       }
-      if (p === "/vendor/mermaid.min.js" && req.method === "GET") return serveFile(res, MERMAID);
+      if (p === "/vendor/mermaid.min.js" && req.method === "GET") return await serveFile(res, MERMAID);
 
       // Machine-readable description of the API, with this deployment's URL.
       if (p === "/llms.txt" && req.method === "GET") {
@@ -122,15 +136,19 @@ export function createApp(opts = {}) {
 
       if (p.startsWith("/n/") && req.method === "GET") {
         const rel = p.slice(3);
-        if (!rel.endsWith(".md")) return serveFile(res, store.assetPath(rel));
-        if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`, wantsJson);
-        const v = url.searchParams.get("v");
-        const note = v ? await store.readVersion(rel, v) : await store.read(rel);
-        const versions = await store.versions(rel);
-        const html = render(note.markdown);
-        return send(res, 200, notePage({
-          siteTitle, note: { ...note, title: titleOf(note.markdown, rel) }, html, versions, viewing: v, publicUrl: publicUrl(req),
-        }));
+        if (!rel.endsWith(".md")) return await serveFile(res, store.assetPath(rel));
+        return await renderNote(req, res, rel, url.searchParams.get("v"));
+      }
+
+      // Short URLs: /sleepy-wombat-hums. Only one segment, only slug characters,
+      // never a reserved prefix, so nothing else on the site can be shadowed.
+      if (req.method === "GET") {
+        const slug = p.slice(1);
+        if (slug && !slug.includes("/") && SLUG_RE.test(slug) && !RESERVED.has(slug)) {
+          const rel = store.pathOf(slug);
+          if (rel) return await renderNote(req, res, rel, url.searchParams.get("v"));
+          return fail(res, 404, `nothing at /${slug}`, wantsJson);
+        }
       }
 
       if (p.startsWith("/raw/") && req.method === "GET") {
@@ -159,7 +177,7 @@ export function createApp(opts = {}) {
         const notes = [];
         for (const n of list) {
           const { markdown } = await store.read(n.path);
-          notes.push({ ...n, title: titleOf(markdown, n.path), url: `${publicUrl(req)}/n/${encodeURI(n.path)}` });
+          notes.push(withUrls(req, { ...n, title: titleOf(markdown, n.path) }));
         }
         return json(res, 200, { notes });
       }
@@ -175,14 +193,17 @@ export function createApp(opts = {}) {
           if (wantVersions) return json(res, 200, { path: rel, versions });
           const v = url.searchParams.get("v");
           const note = v ? await store.readVersion(rel, v) : await store.read(rel);
-          return json(res, 200, { ...note, title: titleOf(note.markdown, rel), versions, url: `${publicUrl(req)}/n/${encodeURI(rel)}` });
+          return json(res, 200, withUrls(req, { ...note, title: titleOf(note.markdown, rel), versions }));
         }
         if (req.method === "PUT" || req.method === "POST") {
           if (!authorised(req)) return fail(res, 401, "publish token required", true);
           const markdown = await readBody(req);
           if (!markdown.trim()) return fail(res, 400, "empty note", true);
-          const result = await store.write(rel, markdown);
-          return json(res, result.created ? 201 : 200, { ...result, url: `${publicUrl(req)}/n/${encodeURI(result.path)}` });
+          // ?slug=my-name (or X-Slug header) picks the short URL; otherwise one
+          // is assigned on first publish and kept.
+          const slug = url.searchParams.get("slug") || req.headers["x-slug"] || null;
+          const result = await store.write(rel, markdown, { slug });
+          return json(res, result.created ? 201 : 200, withUrls(req, result));
         }
         if (req.method === "DELETE") {
           if (!authorised(req)) return fail(res, 401, "publish token required", true);
@@ -194,7 +215,7 @@ export function createApp(opts = {}) {
 
       return fail(res, 404, "not found", wantsJson);
     } catch (err) {
-      if (err instanceof BadPath || err.status) return fail(res, err.status || 400, err.message, wantsJson);
+      if (err instanceof BadPath || err instanceof BadSlug || err.status) return fail(res, err.status || 400, err.message, wantsJson);
       if (err.code === "ENOENT") return fail(res, 404, "not found", wantsJson);
       console.error(err);
       return fail(res, 500, "internal error", wantsJson);

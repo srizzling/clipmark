@@ -301,6 +301,10 @@
       } catch (err) { toast(err.message || String(err), true); }
       b.disabled = false;
     };
+    $("#copy-link").onclick = async (e) => {
+      if (await copyText(e.currentTarget.dataset.url)) toast("Link copied");
+      else toast("Copy failed", true);
+    };
     $("#copy-md").onclick = async () => {
       if (await copyText(source)) toast("Markdown copied");
       else toast("Copy failed", true);

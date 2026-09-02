@@ -21,6 +21,9 @@ Publishing is one HTTP request, every change is kept, and there is no database.
   warning and error panels on paste. Elsewhere they paste as a labelled block.
 - **Code blocks keep their language** via `data-language`, which is what
   Confluence's code block reads back.
+- **Short links.** Every note gets a memorable slug on first publish, like
+  `/sleepy-wombat-hums`, and keeps it for life. Pick your own with
+  `?slug=my-name` on the publish. The long `/n/<path>` form keeps working.
 - **Versioned.** Every publish that changes a note keeps the previous copy.
   History is browsable in the UI and the API, and old versions render like
   any other page.
@@ -64,7 +67,8 @@ Or with the wrapper in `bin/`:
 
 ```sh
 export CLIPMARK_URL=http://notes.example.lan:8080 CLIPMARK_TOKEN=...
-clipmark publish design.md team/design.md
+clipmark publish design.md team/design.md            # short link assigned
+clipmark publish design.md team/design.md retry-plan # short link /retry-plan
 clipmark list
 clipmark history team/design.md
 ```
@@ -79,10 +83,11 @@ preview, which publishes through the same API.
 | `GET` | `/api/notes` | list notes with titles and URLs |
 | `GET` | `/api/notes/<path>` | one note: markdown, mtime, versions. `?v=<id>` for an old version |
 | `GET` | `/api/notes/<path>/versions` | version list, newest first |
-| `PUT` | `/api/notes/<path>` | create or update. Body is the Markdown. `201` on create, `200` on update, `changed: false` when the content was identical |
+| `PUT` | `/api/notes/<path>` | create or update. Body is the Markdown. `201` on create, `200` on update, `changed: false` when the content was identical. `?slug=my-name` sets the short link |
 | `DELETE` | `/api/notes/<path>` | remove the current copy. History is kept |
 | `POST` | `/api/render` | Markdown in, HTML fragment out. Nothing is saved |
-| `GET` | `/n/<path>` | rendered page. `?v=<id>` renders an old version |
+| `GET` | `/<slug>` | rendered page at its short link. `?v=<id>` renders an old version |
+| `GET` | `/n/<path>` | the same page at its long address |
 | `GET` | `/raw/<path>` | the Markdown |
 | `GET` | `/healthz` | `{ ok, version, notes, writable, renders }`. `503` when not ok |
 | `GET` | `/llms.txt` | the API described in plain text for agents and tools, with this deployment's URL filled in |
@@ -121,6 +126,7 @@ you only that.
 
 ```
 notes/
+  .slugs.json                          { "sleepy-wombat-hums": "team/design.md", ... }
   team/design.md                       current copy
   .versions/team/design/
     2026-09-02T09-41-12.318Z.md        every published state, newest last

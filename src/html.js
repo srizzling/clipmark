@@ -37,7 +37,8 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
   const rows = notes.length
     ? notes.map((n) => `
       <tr>
-        <td><a href="/n/${encodeURI(n.path)}">${h(n.title)}</a><div class="muted mono">${h(n.path)}</div></td>
+        <td><a href="/${h(n.slug)}">${h(n.title)}</a><div class="muted mono">${h(n.path)}</div></td>
+        <td><a class="mono slug" href="/${h(n.slug)}">/${h(n.slug)}</a></td>
         <td>${when(n.mtime)}</td>
         <td class="num">${n.versions}</td>
         <td class="actions">
@@ -46,13 +47,13 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
           <a href="/raw/${encodeURI(n.path)}">raw</a>
         </td>
       </tr>`).join("")
-    : `<tr><td colspan="4" class="muted">No notes yet. Publish one with the API below, or <a href="/new">write one here</a>.</td></tr>`;
+    : `<tr><td colspan="5" class="muted">No notes yet. Publish one with the API below, or <a href="/new">write one here</a>.</td></tr>`;
 
   const body = `
 <main class="index">
   <h1>Notes</h1>
   <table class="notes">
-    <thead><tr><th>Title</th><th>Updated</th><th class="num">Versions</th><th></th></tr></thead>
+    <thead><tr><th>Title</th><th>Link</th><th>Updated</th><th class="num">Versions</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
 
@@ -62,6 +63,8 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
      -H "Content-Type: text/markdown" \\
      --data-binary @doc.md \\
      ${h(publicUrl)}/api/notes/doc.md</code></pre>
+    <p>Each note gets a short link like <code>/sleepy-wombat-hums</code> on first publish and keeps it.
+    Choose your own with <code>?slug=my-name</code> on the <code>PUT</code>.</p>
     <p>Every change is kept: <code>GET /api/notes/doc.md/versions</code> lists them and
     <code>/n/doc.md?v=&lt;id&gt;</code> shows one. <code>DELETE /api/notes/doc.md</code> removes the
     current copy and keeps the history. <code>GET /healthz</code> for monitoring.
@@ -71,7 +74,7 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
   return layout({ title: "Notes", siteTitle, body });
 }
 
-export function notePage({ siteTitle, note, html, versions, viewing, publicUrl }) {
+export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl }) {
   const path = note.path;
   const enc = encodeURI(path);
   const current = !viewing;
@@ -80,7 +83,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl }
         <summary>History <span class="pill">${versions.length}</span></summary>
         <ol reversed>
           ${versions.map((v) => `<li${viewing === v.id ? ' class="current"' : ""}>
-            <a href="/n/${enc}?v=${encodeURIComponent(v.id)}">v${v.n}</a>
+            <a href="/${h(note.slug)}?v=${encodeURIComponent(v.id)}">v${v.n}</a>
             <span class="muted mono">${h(v.id.replace("T", " ").slice(0, 19).replace(/-(\d\d)-(\d\d)$/, ":$1:$2"))}Z · ${v.size} B</span>
           </li>`).join("")}
         </ol>
@@ -88,7 +91,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl }
     : "";
 
   const banner = viewing
-    ? `<div class="banner">Viewing version <code>${h(viewing)}</code>. <a href="/n/${enc}">Back to current</a>.</div>`
+    ? `<div class="banner">Viewing version <code>${h(viewing)}</code>. <a href="/${h(note.slug)}">Back to current</a>.</div>`
     : "";
 
   const body = `
@@ -96,7 +99,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl }
   <div class="left">
     <a class="back" href="/" title="All notes">←</a>
     <span class="title">${h(note.title)}</span>
-    <span class="muted mono">${h(path)}</span>
+    <button id="copy-link" class="link mono" data-url="${h(shortUrl)}" title="Copy this note's short link (${h(path)})">/${h(note.slug)}</button>
   </div>
   <div class="right">
     <label class="diagrams">Diagrams
@@ -109,7 +112,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl }
     <button id="copy-rich" class="primary" title="Copy the rendered note as rich text, ready to paste into an editor">Copy for pasting</button>
     <button id="copy-md" title="Copy the Markdown source">Copy Markdown</button>
     ${current ? `<a class="btn" href="/edit/${enc}">Edit</a>` : ""}
-    <a class="btn" href="/raw/${enc}${viewing ? `?v=${encodeURIComponent(viewing)}` : ""}">Raw</a>
+    <a class="btn" href="/raw/${enc}${viewing ? `?v=${encodeURIComponent(viewing)}` : ""}" title="${h(path)}">Raw</a>
     ${history}
   </div>
 </div>

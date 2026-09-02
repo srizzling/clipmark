@@ -9,7 +9,8 @@ Version: {{VERSION}}
 
 - `PUT {{PUBLIC_URL}}/api/notes/<path>` with the Markdown as the request body creates or updates a note. `<path>` is relative, may contain folders, and must end in `.md`. Segments may contain letters, digits, `_`, `-`, `.`, and spaces, and may not start with `.`.
 - Send `Content-Type: text/markdown`. If the server has a token configured, send `Authorization: Bearer <token>`; without it you get `401`.
-- Response: `201` on create, `200` on update, JSON `{ path, changed, created, version, url }`. `changed: false` means the content was identical and no new version was recorded.
+- Response: `201` on create, `200` on update, JSON `{ path, slug, changed, created, version, url, pathUrl }`. `url` is the short link (`{{PUBLIC_URL}}/<slug>`), `pathUrl` the long form. `changed: false` means the content was identical and no new version was recorded.
+- Every note gets a memorable three-word slug (like `sleepy-wombat-hums`) on first publish and keeps it across updates. Add `?slug=my-name` to the `PUT` to choose one (a-z, 0-9, hyphens, 3-64 chars). Prefer the short `url` when reporting where a note lives.
 - `DELETE {{PUBLIC_URL}}/api/notes/<path>` removes the current copy and keeps the history.
 
 Example:
@@ -23,7 +24,7 @@ Example:
 - `GET {{PUBLIC_URL}}/api/notes/<path>` returns `{ path, title, markdown, mtime, size, versions, url }`. Add `?v=<version id>` for an old version.
 - `GET {{PUBLIC_URL}}/api/notes/<path>/versions` returns `{ path, versions: [{ id, n, size }] }`, newest first.
 - `GET {{PUBLIC_URL}}/raw/<path>` returns the Markdown as `text/markdown`.
-- `GET {{PUBLIC_URL}}/n/<path>` is the rendered page for humans; `?v=<id>` renders a version.
+- `GET {{PUBLIC_URL}}/<slug>` and `GET {{PUBLIC_URL}}/n/<path>` are the rendered page for humans; `?v=<id>` renders a version.
 - `POST {{PUBLIC_URL}}/api/render` with Markdown in the body returns the HTML fragment without saving anything.
 - `GET {{PUBLIC_URL}}/healthz` returns `{ ok, version, notes, writable, renders }` and `503` when not ok.
 

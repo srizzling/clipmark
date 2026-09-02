@@ -68,3 +68,34 @@ test("assetPath never leaves the notes directory", async () => {
     assert.throws(() => s.assetPath(".versions/x.md"), BadPath);
   } finally { await done(); }
 });
+
+test("slugs: assigned once, kept across versions and delete, customisable", async () => {
+  const { s, done } = await tmpStore();
+  try {
+    const a = await s.write("team/design.md", "# one\n");
+    assert.match(a.slug, /^[a-z]+-[a-z]+-[a-z]+$/);
+    const b = await s.write("team/design.md", "# two\n");
+    assert.equal(b.slug, a.slug, "slug survives a new version");
+    assert.equal(s.pathOf(a.slug), "team/design.md");
+    assert.equal((await s.read("team/design.md")).slug, a.slug);
+    assert.equal((await s.list())[0].slug, a.slug);
+
+    await s.remove("team/design.md");
+    const c = await s.write("team/design.md", "# three\n");
+    assert.equal(c.slug, a.slug, "slug survives delete + re-publish");
+
+    const d = await s.write("team/design.md", "# four\n", { slug: "retry-design" });
+    assert.equal(d.slug, "retry-design");
+    assert.equal(s.pathOf("retry-design"), "team/design.md");
+    assert.equal(s.pathOf(a.slug), null, "old slug released");
+
+    await s.write("other.md", "x");
+    await assert.rejects(() => s.write("other.md", "y", { slug: "retry-design" }), /already points at team\/design.md/);
+    await assert.rejects(() => s.write("other.md", "y", { slug: "api" }), /reserved/);
+    await assert.rejects(() => s.write("other.md", "y", { slug: "Bad Slug" }), /slug must be/);
+
+    // Persisted: a fresh Store over the same dir sees the same mapping.
+    const s2 = new Store(s.root); await s2.init();
+    assert.equal(s2.pathOf("retry-design"), "team/design.md");
+  } finally { await done(); }
+});

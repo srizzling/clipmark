@@ -36,7 +36,8 @@ test("publishing needs the token", async () => {
   assert.equal(r.status, 201);
   const j = await r.json();
   assert.equal(j.created, true);
-  assert.match(j.url, /\/n\/a\.md$/);
+  assert.match(j.pathUrl, /\/n\/a\.md$/);
+  assert.equal(j.url, `${base}/${j.slug}`);
   assert.equal((await put("a.md", "# A\n\nhello v2")).status, 200);
 });
 
@@ -108,4 +109,28 @@ test("assets outside the notes dir are unreachable", async () => {
   assert.equal((await fetch(`${base}/n/..%2F..%2Fetc%2Fpasswd`)).status, 400);
   assert.equal((await fetch(`${base}/n/.versions/a/x.md`)).status, 400);
   assert.equal((await fetch(`${base}/assets/../package.json`)).status, 404);
+});
+
+test("short links resolve, can be chosen, and never shadow routes", async () => {
+  const r = await put("links/a.md", "# Linked\n\nbody");
+  const j = await r.json();
+  assert.match(j.slug, /^[a-z]+-[a-z]+-[a-z]+$/);
+  assert.equal(j.url, `${base}/${j.slug}`);
+  assert.equal(j.pathUrl, `${base}/n/links/a.md`);
+
+  const page = await fetch(`${base}/${j.slug}`);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /<h1>Linked<\/h1>/);
+
+  const custom = await (await put("links/a.md?slug=my-doc", "# Linked\n\nbody v2")).json();
+  assert.equal(custom.slug, "my-doc");
+  assert.equal((await fetch(`${base}/my-doc`)).status, 200);
+  assert.equal((await fetch(`${base}/${j.slug}`)).status, 404, "old slug released");
+  assert.equal((await put("links/b.md?slug=my-doc", "x")).status, 400, "taken");
+  assert.equal((await put("links/b.md?slug=api", "x")).status, 400, "reserved");
+
+  assert.equal((await fetch(`${base}/nope-nope-nope`)).status, 404);
+  assert.equal((await fetch(`${base}/api/notes`)).status, 200, "api still routes");
+  const list = await (await fetch(`${base}/api/notes`)).json();
+  assert.ok(list.notes.every((n) => n.slug && n.url.endsWith(`/${n.slug}`)));
 });

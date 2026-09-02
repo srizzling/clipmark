@@ -4,7 +4,7 @@
 #   export CLIPMARK_URL=http://notes.example:8080
 #   export CLIPMARK_TOKEN=...            # only if the server has one set
 #
-#   clipmark publish doc.md [remote/path.md]   # create or update (versioned)
+#   clipmark publish doc.md [remote/path.md] [slug]   # create or update (versioned)
 #   clipmark list
 #   clipmark get remote/path.md
 #   clipmark history remote/path.md
@@ -33,9 +33,10 @@ req() {
 
 case "$cmd" in
   publish|push|put)
-    file="${1:?usage: clipmark publish <file.md> [remote/path.md]}"
+    file="${1:?usage: clipmark publish <file.md> [remote/path.md] [slug]}"
     remote="${2:-$(basename "$file")}"
-    req PUT "/api/notes/$remote" -H 'Content-Type: text/markdown' --data-binary "@$file"
+    q=""; [ -n "${3:-}" ] && q="?slug=$3"
+    req PUT "/api/notes/$remote$q" -H 'Content-Type: text/markdown' --data-binary "@$file"
     echo
     ;;
   list|ls)
