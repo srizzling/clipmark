@@ -1,0 +1,53 @@
+#!/bin/sh
+# Thin curl wrapper around the clipmark publish API.
+#
+#   export CLIPMARK_URL=http://notes.example:8080
+#   export CLIPMARK_TOKEN=...            # only if the server has one set
+#
+#   clipmark publish doc.md [remote/path.md]   # create or update (versioned)
+#   clipmark list
+#   clipmark get remote/path.md
+#   clipmark history remote/path.md
+#   clipmark rm remote/path.md
+set -eu
+
+: "${CLIPMARK_URL:?set CLIPMARK_URL to the server base URL}"
+auth=""
+if [ -n "${CLIPMARK_TOKEN:-}" ]; then
+  auth="Authorization: Bearer ${CLIPMARK_TOKEN}"
+fi
+
+base="${CLIPMARK_URL%/}"
+cmd="${1:-}"
+[ -n "$cmd" ] && shift || true
+
+req() {
+  # req METHOD PATH [curl args...]
+  method="$1"; p="$2"; shift 2
+  if [ -n "$auth" ]; then
+    curl -fsS -X "$method" -H "$auth" "$@" "$base$p"
+  else
+    curl -fsS -X "$method" "$@" "$base$p"
+  fi
+}
+
+case "$cmd" in
+  publish|push|put)
+    file="${1:?usage: clipmark publish <file.md> [remote/path.md]}"
+    remote="${2:-$(basename "$file")}"
+    req PUT "/api/notes/$remote" -H 'Content-Type: text/markdown' --data-binary "@$file"
+    echo
+    ;;
+  list|ls)
+    req GET "/api/notes"; echo ;;
+  get|cat)
+    req GET "/raw/${1:?usage: clipmark get <remote/path.md>}" ;;
+  history|versions)
+    req GET "/api/notes/${1:?usage: clipmark history <remote/path.md>}/versions"; echo ;;
+  rm|delete)
+    req DELETE "/api/notes/${1:?usage: clipmark rm <remote/path.md>}"; echo ;;
+  *)
+    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+    ;;
+esac

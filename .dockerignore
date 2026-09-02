@@ -1,0 +1,9 @@
+node_modules
+.notes
+.devenv
+.direnv
+.git
+.github
+test
+*.md
+!README.md

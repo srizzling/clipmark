@@ -1,0 +1,7 @@
+node_modules/
+.notes/
+.devenv/
+.devenv.flake.nix
+.direnv/
+.pre-commit-config.yaml
+npm-debug.log*

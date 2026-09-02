@@ -1,0 +1,36 @@
+{
+  "name": "clipmark",
+  "version": "0.1.0",
+  "description": "Render a folder of Markdown notes as a small website whose pages copy cleanly as rich text into Confluence, Google Docs, Word and mail clients. GFM, Mermaid, versioned, with a publish API.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/server.js",
+  "bin": {
+    "clipmark": "bin/clipmark"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0",
+    "markdown-it-footnote": "^4.0.0",
+    "mermaid": "^11.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/srizzling/clipmark.git"
+  },
+  "keywords": [
+    "markdown",
+    "gfm",
+    "mermaid",
+    "confluence",
+    "clipboard",
+    "notes"
+  ]
+}
