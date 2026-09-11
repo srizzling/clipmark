@@ -89,6 +89,19 @@ main.editor #preview { overflow: auto; padding: 0 1rem; border: 1px solid var(--
 #edit-path { min-width: 18rem; }
 @media (max-width: 800px) { main.editor { grid-template-columns: 1fr; height: auto; } main.editor textarea { height: 50vh; } }
 
+/* Full-screen diagram viewer */
+dialog#diagram-dialog { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--bg); color: var(--fg); display: none; flex-direction: column; }
+dialog#diagram-dialog[open] { display: flex; }
+dialog#diagram-dialog::backdrop { background: rgba(0,0,0,0.6); }
+dialog#diagram-dialog .bar { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 1rem; background: var(--bar); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+dialog#diagram-dialog .bar .name { font-weight: 600; }
+dialog#diagram-dialog .bar .hint { font-size: 0.85rem; flex: 1; }
+dialog#diagram-dialog .zoom-tools { display: inline-flex; align-items: center; gap: 0.4rem; margin-left: auto; }
+dialog#diagram-dialog .zoom-tools .level { min-width: 3.5em; text-align: center; }
+dialog#diagram-dialog .stage { flex: 1; min-height: 0; overflow: auto; display: flex; background: #fff; cursor: grab; touch-action: none; user-select: none; }
+dialog#diagram-dialog .stage.dragging { cursor: grabbing; }
+dialog#diagram-dialog .stage svg { flex: none; margin: auto; max-width: none; display: block; }
+
 /* Image fallback dialog */
 dialog#image-dialog { border: 1px solid var(--border); border-radius: 8px; max-width: 90vw; background: var(--bg); color: var(--fg); }
 dialog#image-dialog img { max-width: 80vw; max-height: 70vh; display: block; margin: 0.5rem auto; background: #fff; }

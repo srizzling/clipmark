@@ -14,7 +14,8 @@ Publishing is one HTTP request, every change is kept, and there is no database.
   footnotes, fenced code, and `> [!NOTE]`-style alerts.
 - **Mermaid diagrams** render in the page. On copy they go across as PNG
   images, as the Mermaid source in a code block, or both. Each diagram also
-  has its own copy and download buttons.
+  has its own copy and download buttons, and a full-screen view with zoom
+  and pan.
 - **Alerts become panels.** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
   `[!WARNING]` and `[!CAUTION]` are emitted as `<div data-panel-type=...>`,
   which the Confluence editor turns into its native info, success, note,

@@ -147,6 +147,7 @@
       b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { toast(e.message || String(e), true); } b.disabled = false; };
       bar.appendChild(b);
     };
+    mk("Full screen", "View the diagram full screen (zoom and pan)", () => showDiagram(fig));
     mk("Copy PNG", "Copy the diagram as an image", async () => {
       const { blob, dataUrl } = await svgToPng($("svg", fig));
       if (await copyPng(blob, dataUrl)) toast("Diagram copied as image");
@@ -163,6 +164,134 @@
       download(new Blob([svg], { type: "image/svg+xml" }), `${diagramName(fig)}.svg`);
     });
     fig.appendChild(bar);
+  }
+
+  // ------------------------------------------------------ diagram viewer
+  // A viewport-sized <dialog> holding a clone of the rendered SVG. The clone
+  // is sized explicitly (Mermaid's own max-width is dropped) so it can be
+  // zoomed; url(#id) references still resolve to the original's markers.
+  const viewer = { dlg: null, stage: null, svg: null, base: null, zoom: 1 };
+  const ZOOM_MIN = 0.1, ZOOM_MAX = 8;
+
+  function diagramDialog() {
+    if (viewer.dlg) return viewer.dlg;
+    const dlg = document.createElement("dialog");
+    dlg.id = "diagram-dialog";
+    dlg.innerHTML =
+      `<div class="bar" data-nocopy>` +
+      `<span class="name"></span>` +
+      `<span class="hint muted">Ctrl+scroll or pinch to zoom, drag to pan, Esc to close</span>` +
+      `<span class="zoom-tools">` +
+      `<button type="button" data-zoom="out" title="Zoom out (-)">−</button>` +
+      `<span class="level mono">100%</span>` +
+      `<button type="button" data-zoom="in" title="Zoom in (+)">+</button>` +
+      `<button type="button" data-zoom="fit" title="Fit to screen (0)">Fit</button>` +
+      `<button type="button" data-zoom="one" title="Actual size (1)">1:1</button>` +
+      `<button type="button" data-close title="Close (Esc)">Close</button>` +
+      `</span></div>` +
+      `<div class="stage"></div>`;
+    document.body.appendChild(dlg);
+    const stage = $(".stage", dlg);
+    viewer.dlg = dlg; viewer.stage = stage;
+
+    dlg.addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      if (b.hasAttribute("data-close")) return dlg.close();
+      const r = stage.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      switch (b.dataset.zoom) {
+        case "in": zoomAt(viewer.zoom * 1.25, cx, cy); break;
+        case "out": zoomAt(viewer.zoom / 1.25, cx, cy); break;
+        case "one": zoomAt(1, cx, cy); break;
+        case "fit": fitDiagram(); break;
+      }
+    });
+    dlg.addEventListener("keydown", (e) => {
+      if (e.target.tagName === "INPUT") return;
+      const r = stage.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      if (e.key === "+" || e.key === "=") zoomAt(viewer.zoom * 1.25, cx, cy);
+      else if (e.key === "-" || e.key === "_") zoomAt(viewer.zoom / 1.25, cx, cy);
+      else if (e.key === "0") fitDiagram();
+      else if (e.key === "1") zoomAt(1, cx, cy);
+      else return;
+      e.preventDefault();
+    });
+    // Plain scrolling pans; ctrl/cmd+wheel (which is also how trackpads report
+    // a pinch) zooms around the pointer.
+    stage.addEventListener("wheel", (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      zoomAt(viewer.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+    }, { passive: false });
+    // Drag to pan.
+    let drag = null;
+    stage.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      drag = { x: e.clientX, y: e.clientY, left: stage.scrollLeft, top: stage.scrollTop };
+      stage.setPointerCapture(e.pointerId);
+      stage.classList.add("dragging");
+      e.preventDefault();
+    });
+    stage.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      stage.scrollLeft = drag.left - (e.clientX - drag.x);
+      stage.scrollTop = drag.top - (e.clientY - drag.y);
+    });
+    const endDrag = () => { drag = null; stage.classList.remove("dragging"); };
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+    dlg.addEventListener("close", () => { stage.innerHTML = ""; viewer.svg = null; });
+    window.addEventListener("resize", () => { if (dlg.open && viewer.fitted) fitDiagram(); });
+    return dlg;
+  }
+
+  function showDiagram(fig) {
+    const svg = $("svg", fig);
+    if (!svg) throw new Error("diagram did not render");
+    const dlg = diagramDialog();
+    const vb = (svg.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+    const box = svg.getBoundingClientRect();
+    viewer.base = { w: vb[2] || box.width || 800, h: vb[3] || box.height || 600 };
+    const clone = svg.cloneNode(true);
+    clone.removeAttribute("style");
+    clone.removeAttribute("width");
+    clone.removeAttribute("height");
+    clone.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    viewer.stage.replaceChildren(clone);
+    viewer.svg = clone;
+    const all = $$("figure.mermaid-block");
+    $(".name", dlg).textContent = all.length > 1 ? `Diagram ${all.indexOf(fig) + 1} of ${all.length}` : "Diagram";
+    dlg.showModal();
+    fitDiagram();
+  }
+
+  function setZoom(z) {
+    viewer.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    viewer.svg.style.width = `${Math.round(viewer.base.w * viewer.zoom)}px`;
+    viewer.svg.style.height = `${Math.round(viewer.base.h * viewer.zoom)}px`;
+    $(".level", viewer.dlg).textContent = `${Math.round(viewer.zoom * 100)}%`;
+  }
+
+  // Zoom keeping the diagram point under (cx, cy) in place.
+  function zoomAt(z, cx, cy) {
+    if (!viewer.svg) return;
+    viewer.fitted = false;
+    const before = viewer.svg.getBoundingClientRect();
+    const rx = (cx - before.left) / before.width, ry = (cy - before.top) / before.height;
+    setZoom(z);
+    const after = viewer.svg.getBoundingClientRect();
+    viewer.stage.scrollLeft += after.left + rx * after.width - cx;
+    viewer.stage.scrollTop += after.top + ry * after.height - cy;
+  }
+
+  function fitDiagram() {
+    if (!viewer.svg) return;
+    const pad = 32;
+    const { clientWidth: sw, clientHeight: sh } = viewer.stage;
+    setZoom(Math.min((sw - pad) / viewer.base.w, (sh - pad) / viewer.base.h));
+    viewer.fitted = true;
+    viewer.stage.scrollLeft = 0; viewer.stage.scrollTop = 0;
   }
 
   function diagramName(fig) {
