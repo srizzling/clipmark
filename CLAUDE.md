@@ -14,7 +14,7 @@ The environment is devenv via direnv (`direnv allow` on a clean checkout).
 
 ```sh
 dev            # server on http://localhost:8102 with NOTES_DIR=.notes
-npm test       # node --test, 22 tests across test/*.test.js
+npm test       # node --test, 29 tests across test/*.test.js
 ```
 
 `src/render.js` is the renderer (markdown-it + GFM extras), `src/store.js` the
