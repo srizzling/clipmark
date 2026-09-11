@@ -37,6 +37,7 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
   const rows = notes.length
     ? notes.map((n) => `
       <tr>
+        <td class="pick"><input type="checkbox" name="path" value="${h(n.path)}" aria-label="Select ${h(n.title)}"></td>
         <td><a href="/${h(n.slug)}">${h(n.title)}</a><div class="muted mono">${h(n.path)}</div></td>
         <td><a class="mono slug" href="/${h(n.slug)}">/${h(n.slug)}</a></td>
         <td>${when(n.mtime)}</td>
@@ -47,15 +48,29 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
           <a href="/raw/${encodeURI(n.path)}">raw</a>
         </td>
       </tr>`).join("")
-    : `<tr><td colspan="5" class="muted">No notes yet. Publish one with the API below, or <a href="/new">write one here</a>.</td></tr>`;
+    : `<tr><td colspan="6" class="muted">No notes yet. Publish one with the API below, or <a href="/new">write one here</a>.</td></tr>`;
 
+  // The table is a GET form: ticked boxes become ?path=... on /export, which
+  // answers with a zip of the Markdown. Works without JS; app.js only adds
+  // select-all and the count.
   const body = `
 <main class="index">
   <h1>Notes</h1>
+  <form id="export-form" method="get" action="/export">
   <table class="notes">
-    <thead><tr><th>Title</th><th>Link</th><th>Updated</th><th class="num">Versions</th><th></th></tr></thead>
+    <thead><tr>
+      <th class="pick"><input type="checkbox" id="select-all" aria-label="Select all notes" title="Select all"></th>
+      <th>Title</th><th>Link</th><th>Updated</th><th class="num">Versions</th><th></th>
+    </tr></thead>
     <tbody>${rows}</tbody>
   </table>
+  ${notes.length ? `
+  <div class="bulk">
+    <button type="submit" id="export-selected" class="primary" title="Download the selected notes' Markdown as a .zip (Mermaid blocks included)">Download selected as .zip</button>
+    <span id="export-count" class="muted"></span>
+    <a class="btn" href="/export" title="Every note's Markdown as a .zip">Download all</a>
+  </div>` : ""}
+  </form>
 
   <details class="api">
     <summary>Publishing from the command line</summary>
@@ -69,9 +84,12 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
     <code>/n/doc.md?v=&lt;id&gt;</code> shows one. <code>DELETE /api/notes/doc.md</code> removes the
     current copy and keeps the history. <code>GET /healthz</code> for monitoring.
     The whole API in one page for tools and agents: <a href="/llms.txt">/llms.txt</a>.</p>
+    <p>Tick notes and <em>Download selected</em> for a <code>.zip</code> of their Markdown, or
+    <code>GET /export?path=a.md&amp;path=b.md</code>; <code>/export</code> alone is every note.</p>
   </details>
-</main>`;
-  return layout({ title: "Notes", siteTitle, body });
+</main>
+<script src="/assets/app.js"></script>`;
+  return layout({ title: "Notes", siteTitle, body, bodyClass: "index" });
 }
 
 export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl }) {

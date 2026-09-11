@@ -9,6 +9,7 @@
 #   clipmark get remote/path.md
 #   clipmark history remote/path.md
 #   clipmark rm remote/path.md
+#   clipmark export [remote/path.md ...]              # zip of the Markdown; no paths = every note
 set -eu
 
 : "${CLIPMARK_URL:?set CLIPMARK_URL to the server base URL}"
@@ -47,8 +48,17 @@ case "$cmd" in
     req GET "/api/notes/${1:?usage: clipmark history <remote/path.md>}/versions"; echo ;;
   rm|delete)
     req DELETE "/api/notes/${1:?usage: clipmark rm <remote/path.md>}"; echo ;;
+  export|zip)
+    # Selected notes as a zip on stdout, or every note when no paths are given.
+    #   clipmark export a.md team/b.md > notes.zip
+    q=""
+    for p in "$@"; do
+      q="$q${q:+&}path=$(printf '%s' "$p" | sed 's/ /%20/g')"
+    done
+    req GET "/export${q:+?$q}"
+    ;;
   *)
-    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

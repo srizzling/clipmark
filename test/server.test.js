@@ -134,3 +134,34 @@ test("short links resolve, can be chosen, and never shadow routes", async () => 
   const list = await (await fetch(`${base}/api/notes`)).json();
   assert.ok(list.notes.every((n) => n.slug && n.url.endsWith(`/${n.slug}`)));
 });
+
+test("export zips the selected notes, or all of them, with folders kept", async () => {
+  const { entries } = await import("./zip.test.js");
+  const mermaid = "# Flow\n\n```mermaid\ngraph TD; A-->B\n```\n";
+  assert.equal((await put("zip/one.md", "# One\n")).status, 201);
+  assert.equal((await put("zip/deep/flow.md", mermaid)).status, 201);
+
+  const r = await fetch(`${base}/export?path=zip/one.md&path=zip/deep/flow.md`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("content-type"), "application/zip");
+  assert.match(r.headers.get("content-disposition"), /^attachment; filename="notes-\d{4}-\d{2}-\d{2}\.zip"$/);
+  const got = entries(Buffer.from(await r.arrayBuffer()));
+  assert.deepEqual(got.map((e) => e.name), ["zip/one.md", "zip/deep/flow.md"]);
+  assert.equal(got[1].data, mermaid, "Mermaid source travels as written");
+
+  const one = await fetch(`${base}/export?path=zip/deep/flow.md`);
+  assert.match(one.headers.get("content-disposition"), /filename="zip-deep-flow-/);
+
+  const all = entries(Buffer.from(await (await fetch(`${base}/export`)).arrayBuffer()));
+  const listed = (await (await fetch(`${base}/api/notes`)).json()).notes.map((n) => n.path).sort();
+  assert.deepEqual(all.map((e) => e.name).sort(), listed, "no ?path means every note");
+
+  assert.equal((await fetch(`${base}/export?path=zip/one.md&path=zip/missing.md`)).status, 404);
+  assert.equal((await fetch(`${base}/export?path=..%2Fx.md`)).status, 400);
+  assert.equal((await put("zip/x.md?slug=export", "x")).status, 400, "export is a reserved slug");
+
+  const idx = await (await fetch(`${base}/`)).text();
+  assert.match(idx, /<form id="export-form" method="get" action="\/export">/);
+  assert.match(idx, /<input type="checkbox" name="path" value="zip\/deep\/flow\.md"/);
+  assert.match(idx, /id="export-selected"/);
+});

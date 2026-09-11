@@ -27,6 +27,9 @@ Publishing is one HTTP request, every change is kept, and there is no database.
 - **Versioned.** Every publish that changes a note keeps the previous copy.
   History is browsable in the UI and the API, and old versions render like
   any other page.
+- **Bulk download.** Tick notes on the index and download their Markdown as
+  one `.zip`, folders and Mermaid blocks intact. `GET /export` does the same
+  for the API and the CLI.
 - **Publish API** with an optional bearer token, plus a tiny `curl` wrapper.
 - **No build step, no database, no external assets.** Node and two Markdown
   libraries; Mermaid is served from the container.
@@ -71,6 +74,7 @@ clipmark publish design.md team/design.md            # short link assigned
 clipmark publish design.md team/design.md retry-plan # short link /retry-plan
 clipmark list
 clipmark history team/design.md
+clipmark export team/design.md team/rollout.md > design.zip   # no paths = every note
 ```
 
 There is also a browser editor at `/new` and `/edit/<path>` with a live
@@ -89,6 +93,7 @@ preview, which publishes through the same API.
 | `GET` | `/<slug>` | rendered page at its short link. `?v=<id>` renders an old version |
 | `GET` | `/n/<path>` | the same page at its long address |
 | `GET` | `/raw/<path>` | the Markdown |
+| `GET` | `/export?path=a.md&path=b.md` | a `.zip` of the named notes' Markdown, folders kept. No `path` means every note |
 | `GET` | `/healthz` | `{ ok, version, notes, writable, renders }`. `503` when not ok |
 | `GET` | `/llms.txt` | the API described in plain text for agents and tools, with this deployment's URL filled in |
 

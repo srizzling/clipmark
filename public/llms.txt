@@ -24,6 +24,7 @@ Example:
 - `GET {{PUBLIC_URL}}/api/notes/<path>` returns `{ path, title, markdown, mtime, size, versions, url }`. Add `?v=<version id>` for an old version.
 - `GET {{PUBLIC_URL}}/api/notes/<path>/versions` returns `{ path, versions: [{ id, n, size }] }`, newest first.
 - `GET {{PUBLIC_URL}}/raw/<path>` returns the Markdown as `text/markdown`.
+- `GET {{PUBLIC_URL}}/export?path=<path>&path=<path>` returns a `.zip` (`application/zip`) of the named notes' Markdown with their folder layout kept; Mermaid blocks are in the Markdown as written. Omit `path` to get every note. `404` if any named note does not exist.
 - `GET {{PUBLIC_URL}}/<slug>` and `GET {{PUBLIC_URL}}/n/<path>` are the rendered page for humans; `?v=<id>` renders a version.
 - `POST {{PUBLIC_URL}}/api/render` with Markdown in the body returns the HTML fragment without saving anything.
 - `GET {{PUBLIC_URL}}/healthz` returns `{ ok, version, notes, writable, renders }` and `503` when not ok.

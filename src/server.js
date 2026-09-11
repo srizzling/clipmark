@@ -11,6 +11,7 @@ import { timingSafeEqual } from "node:crypto";
 import { render, titleOf } from "./render.js";
 import { Store, BadPath, BadSlug, SLUG_RE, RESERVED } from "./store.js";
 import { indexPage, notePage, editorPage, errorPage } from "./html.js";
+import { zip } from "./zip.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -138,6 +139,24 @@ export function createApp(opts = {}) {
         const rel = p.slice(3);
         if (!rel.endsWith(".md")) return await serveFile(res, store.assetPath(rel));
         return await renderNote(req, res, rel, url.searchParams.get("v"));
+      }
+
+      // A zip of the Markdown sources. ?path=a.md&path=b.md picks notes (the
+      // index page's checkboxes submit exactly this); no ?path means all of
+      // them. Folders are kept, so the archive unpacks to the same layout.
+      if (p === "/export" && req.method === "GET") {
+        const wanted = url.searchParams.getAll("path").filter(Boolean);
+        const paths = wanted.length ? [...new Set(wanted)] : (await store.list()).map((n) => n.path);
+        if (!paths.length) return fail(res, 404, "no notes to export", wantsJson);
+        const files = [];
+        for (const rel of paths) {
+          if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`, wantsJson);
+          const note = await store.read(rel);
+          files.push({ name: note.path, data: note.markdown, mtime: new Date(note.mtime) });
+        }
+        const stem = files.length === 1 ? files[0].name.replace(/\.md$/, "").replace(/[^A-Za-z0-9_-]+/g, "-") : "notes";
+        const name = `${stem}-${new Date().toISOString().slice(0, 10)}.zip`;
+        return send(res, 200, zip(files), "application/zip", { "Content-Disposition": `attachment; filename="${name}"` });
       }
 
       // Short URLs: /sleepy-wombat-hums. Only one segment, only slug characters,

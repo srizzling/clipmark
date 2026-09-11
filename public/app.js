@@ -344,6 +344,36 @@
     };
   }
 
+  // ----------------------------------------------------------- index page
+  // The form works without this; it only adds select-all and a live count.
+  function initIndex() {
+    const form = $("#export-form"), all = $("#select-all"), btn = $("#export-selected"), count = $("#export-count");
+    if (!form || !btn) return;
+    const boxes = () => $$("input[name=path]", form);
+    const update = () => {
+      const n = boxes().filter((b) => b.checked).length;
+      btn.disabled = n === 0;
+      count.textContent = n ? `${n} selected` : "";
+      if (all) { all.checked = n > 0 && n === boxes().length; all.indeterminate = n > 0 && n < boxes().length; }
+    };
+    if (all) all.onchange = () => { boxes().forEach((b) => (b.checked = all.checked)); update(); };
+    form.addEventListener("change", update);
+    // Shift-click selects the range since the last box clicked.
+    let last = null;
+    form.addEventListener("click", (e) => {
+      const box = e.target.closest("input[name=path]");
+      if (!box) return;
+      if (e.shiftKey && last && last !== box) {
+        const list = boxes(), a = list.indexOf(last), b = list.indexOf(box);
+        list.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => (x.checked = box.checked));
+        update();
+      }
+      last = box;
+    });
+    update();
+  }
+
   if (document.body.classList.contains("note")) initNote();
   else if (document.body.classList.contains("edit")) initEditor();
+  else if (document.body.classList.contains("index")) initIndex();
 })();

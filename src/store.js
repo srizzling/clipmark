@@ -12,7 +12,7 @@ const VERSIONS = ".versions";
 const SLUGS = ".slugs.json";
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // First path segments the server owns; a slug may not shadow them.
-export const RESERVED = new Set(["n", "raw", "edit", "new", "api", "assets", "vendor", "healthz", "llms.txt", "favicon.ico", "robots.txt"]);
+export const RESERVED = new Set(["n", "raw", "edit", "new", "export", "api", "assets", "vendor", "healthz", "llms.txt", "favicon.ico", "robots.txt"]);
 
 export class BadSlug extends Error {
   constructor(msg) { super(msg); this.status = 400; }
