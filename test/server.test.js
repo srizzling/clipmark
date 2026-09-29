@@ -165,3 +165,12 @@ test("export zips the selected notes, or all of them, with folders kept", async 
   assert.match(idx, /<input type="checkbox" name="path" value="zip\/deep\/flow\.md"/);
   assert.match(idx, /id="export-selected"/);
 });
+
+test("note page embeds the Markdown source intact, even around </script", async () => {
+  const md = "# Edge\n\n```html\n<!-- c -->\n<script>x</script>\n```\n";
+  assert.equal((await put("edge.md", md)).status, 201);
+  const page = await (await fetch(`${base}/n/edge.md`)).text();
+  const m = page.match(/<script id="note-source" type="application\/json">([\s\S]*?)<\/script>/);
+  assert.ok(m, "source block present and not cut short");
+  assert.equal(JSON.parse(m[1]), md);
+});

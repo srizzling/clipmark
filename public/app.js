@@ -415,7 +415,7 @@
   async function initNote() {
     const article = $("#note");
     await renderMermaid(article);
-    const source = $("#note-source")?.textContent ?? "";
+    const source = JSON.parse($("#note-source")?.textContent ?? '""');
     const modeSel = $("#diagram-mode");
     if (modeSel) {
       modeSel.value = localStorage.getItem("clipmark.diagramMode") || "image";

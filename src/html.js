@@ -140,7 +140,7 @@ ${banner}
 ${html}
   </article>
 </main>
-<script id="note-source" type="text/markdown">${note.markdown.replace(/<\/script/gi, "<\\/script")}</script>
+<script id="note-source" type="application/json">${JSON.stringify(note.markdown).replace(/</g, "\\u003c")}</script>
 <script src="/vendor/mermaid.min.js"></script>
 <script src="/assets/app.js"></script>`;
   return layout({ title: note.title, siteTitle, body, bodyClass: "note" });
