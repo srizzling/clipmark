@@ -1,6 +1,6 @@
 {
   "name": "clipmark",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Render a folder of Markdown notes as a small website whose pages copy cleanly as rich text into Confluence, Google Docs, Word and mail clients. GFM, Mermaid, versioned, with a publish API.",
   "license": "MIT",
   "type": "module",
