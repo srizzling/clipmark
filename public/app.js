@@ -1,4 +1,5 @@
-/* Client side: render Mermaid, and copy the note as rich text.
+/* Client side: render Mermaid, copy the note as rich text, and review it with
+ * highlighted comments.
  *
  * Two clipboard paths, because navigator.clipboard.write() only exists in a
  * secure context (https or localhost) and a LAN box over plain http is not
@@ -411,6 +412,281 @@
   });
   const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+  // --------------------------------------------------------------- review
+  // Select text, add a comment; an agent reads the comments back over the API.
+  // A comment is anchored by its quote and the text around it, never by DOM
+  // position, and highlights are painted with the CSS Custom Highlight API, so
+  // the article's DOM is untouched and "Copy for pasting" stays clean.
+  function initReview(article) {
+    const toggle = $("#toggle-comments"), badge = $("#comment-count");
+    const path = article.dataset.path, viewing = article.dataset.version;
+    const api = `/api/notes/${encodeURI(path)}/comments`;
+    const canPaint = typeof Highlight === "function" && window.CSS && CSS.highlights;
+    const BLOCK = "p,li,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figure,div,tr";
+    const ws = /\s/;
+    let comments = [], ranges = new Map(), showResolved = false, pending = null, cache = null;
+
+    // The article's text as the reader sees it: text nodes in order, minus page
+    // furniture and hidden sources. `sq` is the same with whitespace removed,
+    // which is what quotes are matched against.
+    function model() {
+      if (cache) return cache;
+      const nodes = [], starts = [];
+      let full = "";
+      const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => (n.parentElement.closest("[data-nocopy],[hidden],script,style") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+      });
+      for (let n; (n = walker.nextNode());) { nodes.push(n); starts.push(full.length); full += n.data; }
+      let sq = "";
+      const sqMap = [];
+      for (let i = 0; i < full.length; i++) if (!ws.test(full[i])) { sq += full[i]; sqMap.push(i); }
+      return (cache = { nodes, starts, full, sq, sqMap });
+    }
+
+    // Quote and context for a selection range.
+    function describe(range) {
+      const m = model();
+      let first = -1, last = -1, quote = "", prev = null;
+      m.nodes.forEach((n, i) => {
+        if (!range.intersectsNode(n)) return;
+        const s = n === range.startContainer ? range.startOffset : 0;
+        const e = n === range.endContainer ? range.endOffset : n.length;
+        if (e <= s) return;
+        if (first < 0) first = m.starts[i] + s;
+        last = m.starts[i] + e;
+        const piece = n.data.slice(s, e);
+        // Text from different blocks has no whitespace between it in the DOM.
+        if (prev && !ws.test(quote.slice(-1)) && !ws.test(piece[0]) &&
+            prev.parentElement.closest(BLOCK) !== n.parentElement.closest(BLOCK)) quote += " ";
+        quote += piece; prev = n;
+      });
+      if (first < 0) return null;
+      return {
+        quote: quote.replace(/\s+/g, " ").trim(),
+        prefix: m.full.slice(Math.max(0, first - 40), first),
+        suffix: m.full.slice(last, last + 40),
+      };
+    }
+
+    const common = (a, b, fromEnd) => {
+      let n = 0;
+      while (n < a.length && n < b.length && (fromEnd ? a[a.length - 1 - n] === b[b.length - 1 - n] : a[n] === b[n])) n++;
+      return n;
+    };
+
+    function pointAt(m, off, isEnd) {
+      for (let i = 0; i < m.nodes.length; i++) {
+        const len = m.nodes[i].length, at = off - m.starts[i];
+        if (isEnd ? at > 0 && at <= len : at >= 0 && at < len) return [m.nodes[i], at];
+      }
+      return null;
+    }
+
+    // Where a stored comment is in this page, or null if its text is not here.
+    function rangeFor(c) {
+      const m = model();
+      const needle = c.quote.replace(/\s+/g, "");
+      if (!needle) return null;
+      const pre = (c.prefix || "").replace(/\s+/g, ""), suf = (c.suffix || "").replace(/\s+/g, "");
+      let best = -1, bestScore = -1;
+      for (let i = m.sq.indexOf(needle); i !== -1; i = m.sq.indexOf(needle, i + 1)) {
+        const end = i + needle.length;
+        const score = common(m.sq.slice(Math.max(0, i - pre.length), i), pre, true) + common(m.sq.slice(end, end + suf.length), suf, false);
+        if (score > bestScore) { best = i; bestScore = score; }
+      }
+      if (best < 0) return null;
+      const a = pointAt(m, m.sqMap[best], false), b = pointAt(m, m.sqMap[best + needle.length - 1] + 1, true);
+      if (!a || !b) return null;
+      const r = document.createRange();
+      r.setStart(...a); r.setEnd(...b);
+      return r;
+    }
+
+    function paint() {
+      ranges = new Map();
+      for (const c of comments) {
+        if (c.status !== "open") continue;
+        const r = rangeFor(c);
+        if (r) ranges.set(c.id, r);
+      }
+      const painted = (slop) => comments.filter((c) => c.status === "open" && (c.kind === "slop") === slop && ranges.has(c.id)).map((c) => ranges.get(c.id));
+      if (canPaint) {
+        CSS.highlights.set("clipmark-comment", new Highlight(...painted(false)));
+        CSS.highlights.set("clipmark-slop", new Highlight(...painted(true)));
+      }
+      const open = comments.filter((c) => c.status === "open").length;
+      badge.hidden = !open; badge.textContent = open;
+    }
+
+    const flash = (range) => {
+      if (!canPaint) return;
+      CSS.highlights.set("clipmark-active", new Highlight(range));
+      setTimeout(() => CSS.highlights.delete("clipmark-active"), 1800);
+    };
+
+    const el = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    };
+
+    // ------------------------------------------------------------ the panel
+    const panel = el("aside", "comments-panel");
+    panel.id = "comments-panel"; panel.hidden = true; panel.setAttribute("data-nocopy", "");
+    const head = el("div", "head");
+    const showBox = Object.assign(document.createElement("input"), { type: "checkbox" });
+    const showLabel = el("label", "muted");
+    showLabel.append(showBox, " resolved");
+    const close = el("button", null, "Close");
+    head.append(el("strong", null, "Comments"), showLabel, close);
+    const list = el("ul", "comment-list");
+    panel.append(head, list);
+    document.body.append(panel);
+
+    close.onclick = () => (panel.hidden = true);
+    toggle.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden) renderList(); };
+    showBox.onchange = () => { showResolved = showBox.checked; renderList(); };
+
+    async function call(method, suffix, body) {
+      const r = await fetch(api + suffix, { method, body: body && JSON.stringify(body), headers: body ? { "Content-Type": "application/json" } : {} });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(out.error || `HTTP ${r.status}`);
+      return out;
+    }
+
+    function renderList() {
+      list.replaceChildren();
+      const shown = comments.filter((c) => showResolved || c.status === "open");
+      if (!shown.length) list.append(el("li", "muted empty", comments.length ? "No open comments." : "Select text in the note to add a comment."));
+      for (const c of shown) {
+        const li = el("li", [c.kind === "slop" ? "slop" : "", c.status === "open" ? "" : "done"].join(" ").trim());
+        const q = c.quote.length > 160 ? `${c.quote.slice(0, 160)}…` : c.quote;
+        if (c.kind === "slop") li.append(el("p", "tag", `slop${c.pattern ? ` · ${c.pattern}` : ""}`));
+        li.append(el("blockquote", null, q));
+        if (c.comment) li.append(el("p", "text", c.comment));
+        if (c.resolution) li.append(el("p", "muted", `Resolved: ${c.resolution}`));
+        if (c.status === "open" && !ranges.has(c.id)) li.append(el("p", "muted", "This text is not in the version you are viewing."));
+        const bar = el("div", "actions");
+        const act = (label, fn) => {
+          const b = el("button", null, label);
+          b.onclick = async (e) => {
+            e.stopPropagation(); b.disabled = true;
+            try { await fn(); } catch (err) { toast(err.message || String(err), true); }
+            b.disabled = false;
+          };
+          bar.append(b);
+        };
+        if (c.status === "open") act("Resolve", async () => { await call("PATCH", `/${c.id}`, { status: "resolved" }); await load(); });
+        else act("Reopen", async () => { await call("PATCH", `/${c.id}`, { status: "open" }); await load(); });
+        act("Delete", async () => { if (confirm("Delete this comment?")) { await call("DELETE", `/${c.id}`); await load(); } });
+        li.append(bar);
+        li.onclick = () => {
+          const r = ranges.get(c.id);
+          if (!r) return;
+          r.startContainer.parentElement.scrollIntoView({ block: "center", behavior: "smooth" });
+          flash(r);
+        };
+        list.append(li);
+      }
+    }
+
+    async function load() {
+      try { comments = (await call("GET", "?status=all")).comments; } catch (e) { console.warn("comments", e); return; }
+      paint();
+      renderList();
+    }
+
+    // ------------------------------------------------------- adding a comment
+    const addBar = el("div", "comment-add");
+    addBar.hidden = true; addBar.setAttribute("data-nocopy", "");
+    const addBtn = el("button", "primary", "Comment");
+    const slopBtn = el("button", null, "Slop");
+    slopBtn.title = "Flag this as AI-sounding writing";
+    addBar.append(addBtn, slopBtn);
+    const form = el("form", "comment-form");
+    form.hidden = true; form.setAttribute("data-nocopy", "");
+    const PATTERNS = ["throat-clearing", "faux-insight", "rhetorical-setup", "binary-contrast", "negative-listing", "colon-reveal",
+      "superficial-analysis", "importance-puffery", "metadiscourse", "roadmap-sentence", "weasel-attribution", "fake-strong-verb",
+      "synonym-cycling", "fragmentation", "robotic-rhythm", "fake-profound-kicker", "summary-recap", "closing-offer",
+      "formatting-slop", "bullet-inflation", "em-dash", "banned-word", "filler"];
+    const patternSel = el("select");
+    patternSel.append(new Option("Which pattern? (optional)", ""), ...PATTERNS.map((p) => new Option(p, p)));
+    const ta = el("textarea"); ta.rows = 3;
+    let kind = "comment";
+    const formBar = el("div", "actions");
+    const submit = el("button", "primary", "Comment"); submit.type = "submit";
+    const cancel = el("button", null, "Cancel"); cancel.type = "button";
+    formBar.append(submit, cancel);
+    form.append(patternSel, ta, formBar);
+    document.body.append(addBar, form);
+
+    function placeNear(node, range) {
+      const rects = range.getClientRects();
+      const r = rects[rects.length - 1] || range.getBoundingClientRect();
+      node.style.top = `${r.bottom + window.scrollY + 6}px`;
+      node.style.left = `${Math.max(8, Math.min(r.right + window.scrollX - 20, window.scrollX + document.documentElement.clientWidth - 300))}px`;
+    }
+
+    function hideAdd() { addBar.hidden = true; }
+    function closeForm() { form.hidden = true; ta.value = ""; patternSel.value = ""; pending = null; CSS.highlights?.delete("clipmark-active"); }
+
+    function onSelect() {
+      if (!form.hidden) return;
+      const sel = getSelection();
+      if (!sel.rangeCount || sel.isCollapsed) return hideAdd();
+      const range = sel.getRangeAt(0);
+      if (!article.contains(range.commonAncestorContainer)) return hideAdd();
+      const info = describe(range);
+      if (!info || !info.quote) return hideAdd();
+      pending = { ...info, range: range.cloneRange() };
+      placeNear(addBar, range);
+      addBar.hidden = false;
+    }
+    document.addEventListener("mouseup", () => setTimeout(onSelect, 0));
+    document.addEventListener("keyup", (e) => { if (e.shiftKey || e.key.startsWith("Arrow")) onSelect(); });
+    document.addEventListener("mousedown", (e) => { if (!addBar.contains(e.target)) hideAdd(); });
+
+    addBar.addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
+    addBtn.onclick = () => openForm("comment");
+    slopBtn.onclick = () => openForm("slop");
+    function openForm(k) {
+      if (!pending) return;
+      kind = k;
+      patternSel.hidden = k !== "slop";
+      ta.placeholder = k === "slop" ? "Why does this read as AI? (optional, but the reason is the useful part)" : "What should change?";
+      submit.textContent = k === "slop" ? "Flag as slop" : "Comment";
+      hideAdd();
+      placeNear(form, pending.range);
+      form.hidden = false;
+      if (canPaint) CSS.highlights.set("clipmark-active", new Highlight(pending.range));
+      ta.focus();
+    }
+    cancel.onclick = closeForm;
+    ta.onkeydown = (e) => {
+      if (e.key === "Escape") closeForm();
+      else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") form.requestSubmit();
+    };
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = ta.value.trim();
+      if (!pending || (!body && kind === "comment")) return;
+      submit.disabled = true;
+      try {
+        const { quote, prefix, suffix } = pending;
+        await call("POST", "", { quote, prefix, suffix, body, kind, pattern: kind === "slop" ? patternSel.value || undefined : undefined, version: viewing || undefined });
+        closeForm();
+        getSelection().removeAllRanges();
+        await load();
+        toast(kind === "slop" ? "Flagged as slop" : "Comment added");
+      } catch (err) { toast(err.message || String(err), true); }
+      submit.disabled = false;
+    };
+
+    window.addEventListener("focus", load); // pick up resolutions made elsewhere
+    return load();
+  }
+
   // ------------------------------------------------------------ note page
   async function initNote() {
     const article = $("#note");
@@ -438,6 +714,7 @@
       if (await copyText(source)) toast("Markdown copied");
       else toast("Copy failed", true);
     };
+    initReview(article);
   }
 
   // ---------------------------------------------------------- editor page

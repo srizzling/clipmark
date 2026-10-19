@@ -14,11 +14,11 @@ The environment is devenv via direnv (`direnv allow` on a clean checkout).
 
 ```sh
 dev            # server on http://localhost:8102 with NOTES_DIR=.notes
-npm test       # node --test, 30 tests across test/*.test.js
+npm test       # node --test, 48 tests across test/*.test.js
 ```
 
 `src/render.js` is the renderer (markdown-it + GFM extras), `src/store.js` the
-notes/versions/slugs store, `src/server.js` the HTTP API and pages, `src/html.js`
+notes/versions/slugs/comments store, `src/comments.js` the comment anchoring and digest, `src/server.js` the HTTP API and pages, `src/html.js`
 the templates, `public/app.js` the clipboard and Mermaid code in the browser.
 
 Every async helper called from a route must be `return await`ed, not returned.
@@ -45,6 +45,13 @@ Changing any of these is a breaking change and needs coordination downstream.
   optional `?slug=`; response has `url` (short link), `pathUrl`, `slug`,
   `version`, `changed`. `bin/clipmark` and `public/llms.txt` document it; keep all
   three in step when the API changes.
+- **Review comments**: `GET/POST /api/notes/<path>/comments` and
+  `PATCH/DELETE .../comments/<id>`, with `?format=md` for the digest, are
+  read by agents and need no token. Highlights must stay a CSS Custom Highlight
+  overlay: wrapping text in the article DOM would leak into "Copy for pasting".
+  Keep `bin/clipmark` and `public/llms.txt` in step. `GET /api/slop` collects
+  `kind: "slop"` comments across notes and must keep returning the original
+  `quote`, `context` and `feedback` after the note is rewritten; they are what skills learn from.
 - **`version` in `/healthz` comes from `package.json`**, so the package version
   must match the release tag.
 

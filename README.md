@@ -31,6 +31,19 @@ Publishing is one HTTP request, every change is kept, and there is no database.
 - **Bulk download.** Tick notes on the index and download their Markdown as
   one `.zip`, folders and Mermaid blocks intact. `GET /export` does the same
   for the API and the CLI.
+- **Review comments.** Select text on a page and add a comment; it is
+  highlighted in place and listed in a side panel. An agent reads the open
+  comments back (`GET /api/notes/<path>/comments?format=md`, or
+  `clipmark review`) with the source line each one points at, edits the note,
+  and marks them resolved. Comments follow their text across versions.
+  Highlights are painted over the page, not wrapped around the text, so copied
+  content is unaffected.
+- **Slop flags.** A second button next to **Comment** flags a passage as
+  machine-sounding writing, with an optional pattern tag and a note. They
+  show in red and are rewritten like any other comment, but `GET /api/slop`
+  (or `clipmark slop`) also lists every flag across all notes, with the
+  original text, its paragraph and the reviewer's reason kept after the
+  rewrite, so the examples can be mined for what to stop writing.
 - **Publish API** with an optional bearer token, plus a tiny `curl` wrapper.
 - **No build step, no database, no external assets.** Node and two Markdown
   libraries; Mermaid is served from the container.
@@ -90,6 +103,11 @@ preview, which publishes through the same API.
 | `GET` | `/api/notes/<path>/versions` | version list, newest first |
 | `PUT` | `/api/notes/<path>` | create or update. Body is the Markdown. `201` on create, `200` on update, `changed: false` when the content was identical. `?slug=my-name` sets the short link |
 | `DELETE` | `/api/notes/<path>` | remove the current copy. History is kept |
+| `GET` | `/api/notes/<path>/comments` | review comments. `?status=open` (default), `resolved` or `all`; `?format=md` for a Markdown digest an agent can work from |
+| `POST` | `/api/notes/<path>/comments` | add one: JSON `{ quote, body, prefix?, suffix?, version?, kind?, pattern? }`. `kind: "slop"` flags AI-sounding text and may omit `body`. `?kind=slop` filters the list |
+| `GET` | `/api/slop` | every slop flag across all notes, quote and feedback kept. `?status=`, `?format=md` groups by pattern |
+| `PATCH` | `/api/notes/<path>/comments/<id>` | JSON `{ status: "resolved" \| "open", resolution? }` |
+| `DELETE` | `/api/notes/<path>/comments/<id>` | remove a comment |
 | `POST` | `/api/render` | Markdown in, HTML fragment out. Nothing is saved |
 | `GET` | `/<slug>` | rendered page at its short link. `?v=<id>` renders an old version |
 | `GET` | `/n/<path>` | the same page at its long address |
@@ -97,6 +115,9 @@ preview, which publishes through the same API.
 | `GET` | `/export?path=a.md&path=b.md` | a `.zip` of the named notes' Markdown, folders kept. No `path` means every note |
 | `GET` | `/healthz` | `{ ok, version, notes, writable, renders }`. `503` when not ok |
 | `GET` | `/llms.txt` | the API described in plain text for agents and tools, with this deployment's URL filled in |
+
+Comments need no token, like reading a note; only publishing and deleting a
+note do. Keep the server on a trusted network.
 
 Paths are relative, may contain folders, and must end in `.md`. Segments may
 not start with a dot; `_drafts/x.md` is fine. Files that are
@@ -136,6 +157,7 @@ notes/
   team/design.md                       current copy
   .versions/team/design/
     2026-09-02T09-41-12.318Z.md        every published state, newest last
+  .comments/team/design.json           review comments and slop flags for the note
 ```
 
 Plain files: `ls` is the history browser of last resort, and `cp` is restore.

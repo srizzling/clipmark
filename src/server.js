@@ -9,7 +9,8 @@ import { createRequire } from "node:module";
 import { timingSafeEqual } from "node:crypto";
 
 import { render, titleOf } from "./render.js";
-import { Store, BadPath, BadSlug, SLUG_RE, RESERVED } from "./store.js";
+import { Store, BadPath, BadSlug, BadComment, SLUG_RE, RESERVED } from "./store.js";
+import { digest, slopDigest } from "./comments.js";
 import { indexPage, notePage, editorPage, errorPage } from "./html.js";
 import { zip } from "./zip.js";
 
@@ -201,6 +202,43 @@ export function createApp(opts = {}) {
         return json(res, 200, { notes });
       }
 
+      // Every slop flag across all notes, to learn from. ?status= as for comments.
+      if (p === "/api/slop" && req.method === "GET") {
+        const flags = await store.listSlop(url.searchParams.get("status") || "all");
+        if (url.searchParams.get("format") === "md") return send(res, 200, slopDigest(flags), "text/markdown; charset=utf-8");
+        return json(res, 200, { flags });
+      }
+
+      // Review comments. Open to anyone who can reach the server, like reading
+      // a note; only publishing and deleting a note need the token.
+      const cm = p.match(/^\/api\/notes\/(.+\.md)\/comments(?:\/([A-Za-z0-9_-]+))?$/);
+      if (cm) {
+        const [, rel, id] = cm;
+        if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`, true);
+        const shown = async (cid) => (await store.listComments(rel, "all")).comments.find((c) => c.id === cid);
+        const parse = async () => {
+          try { return JSON.parse(await readBody(req)); } catch (e) { if (e.status) throw e; throw new BadComment("body must be JSON"); }
+        };
+        if (!id && req.method === "GET") {
+          const out = await store.listComments(rel, url.searchParams.get("status") || "open", url.searchParams.get("kind") || "all");
+          if (url.searchParams.get("format") === "md") return send(res, 200, digest(out), "text/markdown; charset=utf-8");
+          return json(res, 200, out);
+        }
+        if (!id && req.method === "POST") {
+          const c = await store.addComment(rel, await parse());
+          return json(res, 201, await shown(c.id));
+        }
+        if (id && req.method === "PATCH") {
+          await store.updateComment(rel, id, await parse());
+          return json(res, 200, await shown(id));
+        }
+        if (id && req.method === "DELETE") {
+          await store.removeComment(rel, id);
+          return json(res, 200, { id, deleted: true });
+        }
+        return fail(res, 405, "method not allowed", true);
+      }
+
       if (p.startsWith("/api/notes/")) {
         let rel = p.slice("/api/notes/".length);
         const wantVersions = rel.endsWith("/versions");
@@ -234,7 +272,7 @@ export function createApp(opts = {}) {
 
       return fail(res, 404, "not found", wantsJson);
     } catch (err) {
-      if (err instanceof BadPath || err instanceof BadSlug || err.status) return fail(res, err.status || 400, err.message, wantsJson);
+      if (err instanceof BadPath || err instanceof BadSlug || err instanceof BadComment || err.status) return fail(res, err.status || 400, err.message, wantsJson);
       if (err.code === "ENOENT") return fail(res, 404, "not found", wantsJson);
       console.error(err);
       return fail(res, 500, "internal error", wantsJson);

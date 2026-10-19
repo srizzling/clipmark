@@ -10,6 +10,10 @@
 #   clipmark history remote/path.md
 #   clipmark rm remote/path.md
 #   clipmark export [remote/path.md ...]              # zip of the Markdown; no paths = every note
+#   clipmark review remote/path.md [open|resolved|all] # reviewer's comments as Markdown, with source lines
+#   clipmark comments remote/path.md [open|resolved|all]  # the same as JSON
+#   clipmark resolve remote/path.md c1 [what you changed] # mark a comment done; reopen undoes it
+#   clipmark slop [open|resolved|all] [json]          # every slop flag across all notes, grouped by pattern
 set -eu
 
 : "${CLIPMARK_URL:?set CLIPMARK_URL to the server base URL}"
@@ -57,8 +61,23 @@ case "$cmd" in
     done
     req GET "/export${q:+?$q}"
     ;;
+  review)
+    req GET "/api/notes/${1:?usage: clipmark review <remote/path.md> [open|resolved|all]}/comments?format=md&status=${2:-open}"
+    ;;
+  comments)
+    req GET "/api/notes/${1:?usage: clipmark comments <remote/path.md> [open|resolved|all]}/comments?status=${2:-open}"; echo ;;
+  resolve)
+    p="${1:?usage: clipmark resolve <remote/path.md> <id> [what you changed]}"; id="${2:?usage: clipmark resolve <remote/path.md> <id> [what you changed]}"
+    note="$(printf '%s' "${3:-}" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\t' '  ')"
+    req PATCH "/api/notes/$p/comments/$id" -H 'Content-Type: application/json' -d "{\"status\":\"resolved\",\"resolution\":\"$note\"}"; echo ;;
+  slop)
+    # Text flagged as AI-sounding, from every note: the quote, the feedback, the pattern.
+    fmt="format=md"; [ "${2:-}" = json ] && fmt=""
+    req GET "/api/slop?status=${1:-all}${fmt:+&$fmt}"; echo ;;
+  reopen)
+    req PATCH "/api/notes/${1:?usage: clipmark reopen <remote/path.md> <id>}/comments/${2:?usage: clipmark reopen <remote/path.md> <id>}" -H 'Content-Type: application/json' -d '{"status":"open"}'; echo ;;
   *)
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

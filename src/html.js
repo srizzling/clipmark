@@ -129,6 +129,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     </label>
     <button id="copy-rich" class="primary" title="Copy the rendered note as rich text, ready to paste into an editor">Copy for pasting</button>
     <button id="copy-md" title="Copy the Markdown source">Copy Markdown</button>
+    <button id="toggle-comments" title="Review comments. Select text in the note to add one.">Comments <span id="comment-count" class="pill" hidden></span></button>
     ${current ? `<a class="btn" href="/edit/${enc}">Edit</a>` : ""}
     <a class="btn" href="/raw/${enc}${viewing ? `?v=${encodeURIComponent(viewing)}` : ""}" title="${h(path)}">Raw</a>
     ${history}
