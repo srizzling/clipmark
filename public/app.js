@@ -776,10 +776,10 @@
   // Where the note stands in the queue. The choices are plain PATCHes; the
   // page reloads afterwards so the bar and the queue agree with the server.
   function initReviewBar() {
-    const bar = $("#reviewbar");
-    if (!bar) return;
-    const api = `/api/notes/${encodeURI(bar.dataset.path)}/review`;
-    for (const b of $$("button[data-action]", bar)) {
+    const bars = $$(".reviewbar");
+    if (!bars.length) return;
+    const api = `/api/notes/${encodeURI(bars[0].dataset.path)}/review`;
+    for (const b of bars.flatMap((bar) => $$("button[data-action]", bar))) {
       b.onclick = async () => {
         const open = Number($("#comment-count")?.textContent) || 0;
         if (b.dataset.action === "settle" && open &&

@@ -182,7 +182,7 @@ export function dashboardPage({ siteTitle, notes }) {
 }
 
 // The bar at the top of a note: where it stands, and the choices from there.
-function reviewBar(note, review, changes = null) {
+function reviewBar(note, review, changes = null, foot = false) {
   if (!review) return "";
   const enc = encodeURI(note.path);
   const btn = (action, label, title, cls = "") => `<button type="button" data-action="${action}"${cls ? ` class="${cls}"` : ""} title="${h(title)}">${label}</button>`;
@@ -198,6 +198,15 @@ function reviewBar(note, review, changes = null) {
     refining: `Reviewed ${at}. Waiting on edits. <a href="/diff/${enc}">Diff</a>.`,
     settled: `Settled ${at}. A new publish puts it back in the queue.`,
   }[review.state];
+  // The copy at the end of a note is where you decide once you have read it.
+  if (foot) {
+    return `<div class="reviewbar reviewfoot state-${review.state}" data-path="${h(note.path)}" data-nocopy>
+  <span class="badge">${STATE_LABEL[review.state]}</span>
+  <span class="muted">${review.state === "review" ? "Finished reading?" : note_}</span>
+  <span class="spacer"></span>
+  ${choices}
+</div>`;
+  }
   return `<div class="reviewbar state-${review.state}" id="reviewbar" data-path="${h(note.path)}" data-nocopy>
   <span class="badge">${STATE_LABEL[review.state]}</span>
   <span class="muted">${note_}</span>
@@ -220,6 +229,7 @@ export function diffPage({ siteTitle, note, rows, stats, versions, from, to, rev
       <div class="new">${r.new ?? ""}</div>
     </div>`).join("");
   const body = `
+<div class="stickyhead">
 <div class="toolbar" data-nocopy>
   <div class="left">
     <a class="back" href="/${h(note.slug)}" title="Back to the note">←</a>
@@ -241,11 +251,13 @@ export function diffPage({ siteTitle, note, rows, stats, versions, from, to, rev
   </div>
 </div>
 ${reviewBar(note, review)}
+</div>
 <main class="diffmain">
   ${from ? "" : `<p class="muted">There is no earlier version to compare with, so everything shows as added.</p>`}
   <div class="legend muted" data-nocopy>Comments attach to the new side. Removed text is on the left (or struck through in unified).</div>
   <article id="note" class="markdown-body diff" data-path="${h(note.path)}" data-version="${h(to.current ? "" : toId)}">${cells}
   </article>
+  ${reviewBar(note, review, null, true)}
 </main>
 <script src="/vendor/mermaid.min.js"></script>
 <script src="/assets/app.js"></script>`;
@@ -273,6 +285,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     : "";
 
   const body = `
+<div class="stickyhead">
 <div class="toolbar" data-nocopy>
   <div class="left">
     <a class="back" href="/" title="Back to the review queue">←</a>
@@ -296,12 +309,14 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     ${history}
   </div>
 </div>
-${banner}
 ${current ? reviewBar(note, review, changes) : ""}
+</div>
+${banner}
 <main>
   <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}"${hits.length ? ` data-hits="${h(JSON.stringify(hits))}"` : ""}${changes?.blocks.length ? ` data-changes="${h(JSON.stringify({ total: changes.total, blocks: changes.blocks }))}"` : ""}>
 ${html}
   </article>
+  ${current ? reviewBar(note, review, null, true) : ""}
 </main>
 <script id="note-source" type="application/json">${JSON.stringify(note.markdown).replace(/</g, "\\u003c")}</script>
 <script src="/vendor/mermaid.min.js"></script>

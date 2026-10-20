@@ -194,6 +194,9 @@ test("reviewing a note moves it through the queue and a new publish brings it ba
   let page = await (await fetch(`${base}/n/queue/one.md`)).text();
   assert.match(page, /id="reviewbar"/);
   assert.match(page, /data-action="reviewed"/);
+  assert.equal(page.match(/data-action="settle"/g).length, 2, "choices at the top and again after the note");
+  assert.match(page, /<div class="stickyhead">\s*<div class="toolbar"[\s\S]*id="reviewbar"[\s\S]*?<\/div>\s*<\/div>\s*<main>/, "the review bar travels with the toolbar");
+  assert.ok(page.indexOf("reviewfoot") > page.indexOf("</article>"), "and the last copy sits after the article, outside it");
 
   // No token needed: it is the reviewer's own bookkeeping, like comments.
   const r = await patch("reviewed");
