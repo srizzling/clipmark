@@ -221,3 +221,5 @@ details.linkbox .pop p { margin: 0.5rem 0 0; font-size: 0.85rem; }
 .linkform input { flex: 1; min-width: 0; }
 .pill.link { background: var(--info); text-decoration: none; color: inherit; margin-left: 0.3rem; }
 .pill.changed { background: var(--warning); text-decoration: none; color: inherit; margin-left: 0.3rem; }
+.banner.fresh { position: relative; }
+.banner.fresh button { margin-left: 0.5rem; }

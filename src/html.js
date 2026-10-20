@@ -344,7 +344,7 @@ ${current ? reviewBar(note, review, changes) : ""}
 </div>
 ${banner}
 <main>
-  <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}"${hits.length ? ` data-hits="${h(JSON.stringify(hits))}"` : ""}${changes?.blocks.length ? ` data-changes="${h(JSON.stringify({ total: changes.total, blocks: changes.blocks }))}"` : ""}>
+  <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}"${current ? ` data-latest="${h(versions[0]?.id || "")}"` : ""}${hits.length ? ` data-hits="${h(JSON.stringify(hits))}"` : ""}${changes?.blocks.length ? ` data-changes="${h(JSON.stringify({ total: changes.total, blocks: changes.blocks }))}"` : ""}>
 ${html}
   </article>
   ${current ? reviewBar(note, review, null, true) : ""}

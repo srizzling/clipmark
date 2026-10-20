@@ -723,6 +723,7 @@
     initDiff();
     initSearchHits(article);
     initChanges(article);
+    initFresh(article);
     initReview(article);
   }
 
@@ -772,6 +773,37 @@
     };
     if (box) { box.checked = localStorage.getItem("clipmark.showChanges") !== "0"; box.onchange = apply; }
     apply();
+  }
+
+  // ------------------------------------------------------ stale page notice
+  // An agent can republish the note while it is open here. Watch the newest
+  // version id (the page carries the one it was rendered from) and say so,
+  // rather than reloading under someone who may be mid-comment.
+  function initFresh(article) {
+    const seen = article.dataset.latest;
+    if (seen === undefined || !article.dataset.path) return;
+    const api = `/api/notes/${encodeURI(article.dataset.path)}/versions`;
+    let timer, shown = false;
+    const check = async () => {
+      if (shown || document.hidden) return;
+      try {
+        const r = await fetch(api, { cache: "no-store" });
+        if (!r.ok) return;
+        const latest = (await r.json()).versions?.[0]?.id ?? "";
+        if (latest && latest !== seen) show();
+      } catch { /* offline or restarting: try again next time */ }
+    };
+    function show() {
+      shown = true; clearInterval(timer);
+      const bar = document.createElement("div");
+      bar.className = "banner fresh"; bar.setAttribute("data-nocopy", ""); bar.setAttribute("role", "status");
+      const btn = document.createElement("button");
+      btn.className = "primary"; btn.textContent = "Refresh"; btn.onclick = () => location.reload();
+      bar.append("This note has changed since you opened it. ", btn);
+      ($(".stickyhead") || document.body).append(bar);
+    }
+    timer = setInterval(check, 10000);
+    document.addEventListener("visibilitychange", check);
   }
 
   // Commenting can change a note's review state on the server. Take the bars

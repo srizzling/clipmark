@@ -65,6 +65,10 @@ test("rendered page, raw, versions and JSON all agree", async () => {
   const oldPage = await (await fetch(`${base}/n/a.md?v=${old}`)).text();
   assert.match(oldPage, /Viewing version/);
   assert.match(oldPage, /<p>hello<\/p>/);
+  // The page records the version it was rendered from, so an open tab can tell
+  // when the note is republished. Only the current view watches for that.
+  assert.match(html, new RegExp(`data-latest="${vs.versions[0].id}"`));
+  assert.doesNotMatch(oldPage, /data-latest/);
   assert.equal((await fetch(`${base}/raw/a.md?v=nope`)).status, 400);
 
   const list = await (await fetch(`${base}/api/notes`)).json();
