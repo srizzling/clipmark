@@ -258,8 +258,65 @@ test("settle-before settles old unreviewed notes and keeps today's", async () =>
 });
 
 test("review routes cannot be shadowed by a custom slug", async () => {
-  for (const slug of ["all", "diff"]) {
+  for (const slug of ["all", "diff", "search"]) {
     const r = await put(`slug-${slug}.md?slug=${slug}`, "# x\n");
     assert.equal(r.status, 400, slug);
   }
+});
+
+// Slugs are searchable and random, so words from the slug lists (animals,
+// verbs) can match other notes. These tests use invented words to stay out of that.
+test("search finds notes by words, typos, paths and slugs, and the API says where", async () => {
+  await put("search/caching.md", "# Caching strategy\n\nWe keep a warm cache in front of the database so that dashboards load quickly.\n");
+  await put("search/other.md", "# Unrelated\n\nNothing to see here, only gardening.\n");
+
+  const api = async (q, extra = "") => (await fetch(`${base}/api/search?q=${encodeURIComponent(q)}${extra}`)).json();
+  const hit = await api("dashbords database");
+  assert.equal(hit.total, 1);
+  const r = hit.results[0];
+  assert.equal(r.path, "search/caching.md");
+  assert.equal(r.title, "Caching strategy");
+  assert.match(r.snippet, /dashboards/);
+  assert.ok(r.highlights.length >= 1);
+  assert.equal(r.snippet.slice(...r.highlights[0]).length > 0, true);
+  assert.equal(r.state, "review");
+  assert.match(r.url, new RegExp(`/${r.slug}$`));
+
+  assert.equal((await api("caching")).results[0].path, "search/caching.md", "title match");
+  assert.equal((await api("search")).total >= 2, true, "path match");
+  assert.equal((await api(r.slug)).results[0].path, "search/caching.md", "slug match");
+  assert.equal((await api('"warm cache"')).total, 1);
+  assert.equal((await api('"cache warm"')).total, 0);
+  assert.equal((await api("qzxvwk")).total, 0);
+  assert.equal((await api("a", "&limit=1")).results.length <= 1, true);
+
+  assert.equal((await fetch(`${base}/api/search`)).status, 400);
+  assert.equal((await fetch(`${base}/api/search?q=%20`)).status, 400);
+});
+
+test("search results page, the header box, and highlights carried into the note", async () => {
+  const page = await (await fetch(`${base}/search?q=${encodeURIComponent("warm <cache>")}`)).text();
+  assert.match(page, /<body class="search">/);
+  assert.match(page, /name="q" value="warm &lt;cache&gt;"/, "the query is escaped");
+  const results = await (await fetch(`${base}/search?q=warm+cache`)).text();
+  assert.match(results, /<mark>warm<\/mark> <mark>cache<\/mark>/);
+  assert.match(results, /Caching strategy/);
+  assert.match(await (await fetch(`${base}/search`)).text(), /Every word has to appear/);
+  assert.match(await (await fetch(`${base}/all`)).text(), /<form class="search" action="\/search"/);
+
+  const slug = (await (await fetch(`${base}/api/search?q=database`)).json()).results[0].slug;
+  const note = await (await fetch(`${base}/${slug}?q=warm+cashe`)).text();
+  assert.match(note, /data-hits="\[[^"]*warm/);
+  assert.doesNotMatch(await (await fetch(`${base}/${slug}`)).text(), /data-hits/);
+});
+
+test("search ignores deleted notes and notices edits", async () => {
+  const find = async (q) => (await (await fetch(`${base}/api/search?q=${q}`)).json()).total;
+  await put("search/temp.md", "# Temp\n\nfrobnicate habitat\n");
+  assert.equal(await find("frobnicate"), 1);
+  await put("search/temp.md", "# Temp\n\nquuxify habitat\n");
+  assert.equal(await find("frobnicate"), 0);
+  assert.equal(await find("quuxify"), 1);
+  await fetch(`${base}/api/notes/search/temp.md`, { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } });
+  assert.equal(await find("quuxify"), 0);
 });

@@ -3,7 +3,7 @@
 
 import { escapeHtml as h } from "./render.js";
 
-export function layout({ title, siteTitle, body, head = "", bodyClass = "" }) {
+export function layout({ title, siteTitle, body, head = "", bodyClass = "", q = "" }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -17,6 +17,9 @@ ${head}
 <body class="${h(bodyClass)}">
 <header class="site">
   <a class="brand" href="/">${h(siteTitle)}</a>
+  <form class="search" action="/search" method="get" role="search">
+    <input type="search" name="q" value="${h(q)}" placeholder="Search notes" aria-label="Search notes" autocomplete="off">
+  </form>
   <nav>
     <a href="/">Review</a>
     <a href="/all">All notes</a>
@@ -94,6 +97,42 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
 }
 
 const STATE_LABEL = { review: "To review", refining: "Refining", settled: "Settled" };
+
+// Wrap the matched ranges of a snippet in <mark>, escaping everything else.
+function marked(text, ranges) {
+  let out = "", at = 0;
+  for (const [a, b] of ranges) { out += h(text.slice(at, a)) + `<mark>${h(text.slice(a, b))}</mark>`; at = b; }
+  return out + h(text.slice(at));
+}
+
+export function searchPage({ siteTitle, q, total, results }) {
+  const row = (n) => `
+      <li>
+        <div class="main">
+          <a class="title" href="/${h(n.slug)}?q=${encodeURIComponent(q)}">${h(n.title)}</a>
+          <span class="pill state-${h(n.state)}">${STATE_LABEL[n.state]}</span>
+          ${n.openComments ? `<span class="pill open" title="Open comments and flags">${n.openComments} open comment${n.openComments === 1 ? "" : "s"}</span>` : ""}
+          <div class="muted mono">${h(n.path)} · /${h(n.slug)}</div>
+          <p class="snippet">${marked(n.snippet, n.highlights)}</p>
+        </div>
+        <div class="meta muted">updated ${when(n.mtime)}</div>
+      </li>`;
+  const summary = !q.trim() ? "" : total
+    ? `<p class="muted">${total} note${total === 1 ? "" : "s"} match${total === 1 ? "es" : ""}${total > results.length ? `, showing the best ${results.length}` : ""}.</p>`
+    : `<p class="muted">No note matches every word of <strong>${h(q)}</strong>. Spelling is forgiven for longer words; use fewer words or check for a typo.</p>`;
+  const body = `
+<main class="dash searchresults">
+  <h1>Search</h1>
+  <form class="bigsearch" action="/search" method="get" role="search">
+    <input type="search" name="q" value="${h(q)}" placeholder="Search titles, text, paths and links" aria-label="Search notes" autocomplete="off"${q ? "" : " autofocus"}>
+    <button type="submit" class="primary">Search</button>
+  </form>
+  ${summary}
+  ${results.length ? `<ul class="queue results">${results.map(row).join("")}</ul>` : ""}
+  ${q.trim() ? "" : `<p class="muted">Every word has to appear somewhere in the note, in any order. Put <code>"quotes"</code> around a phrase. Small typos are forgiven.</p>`}
+</main>`;
+  return layout({ title: q ? `Search: ${q}` : "Search", siteTitle, body, bodyClass: "search", q });
+}
 
 // The review queue. Three groups, derived from the notes' review state: what
 // still needs the reviewer, what they have read and sent back for more work,
@@ -212,7 +251,7 @@ ${reviewBar(note, review)}
   return layout({ title: `Diff: ${note.title}`, siteTitle, body, bodyClass: "note diffpage" });
 }
 
-export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review }) {
+export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review, hits = [] }) {
   const path = note.path;
   const enc = encodeURI(path);
   const current = !viewing;
@@ -259,7 +298,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
 ${banner}
 ${current ? reviewBar(note, review) : ""}
 <main>
-  <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}">
+  <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}"${hits.length ? ` data-hits="${h(JSON.stringify(hits))}"` : ""}>
 ${html}
   </article>
 </main>

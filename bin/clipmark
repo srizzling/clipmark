@@ -14,6 +14,7 @@
 #   clipmark comments remote/path.md [open|resolved|all]  # the same as JSON
 #   clipmark resolve remote/path.md c1 [what you changed] # mark a comment done; reopen undoes it
 #   clipmark slop [open|resolved|all] [json]          # every slop flag across all notes, grouped by pattern
+#   clipmark search words or "a phrase"               # find notes by title, text, path or slug (JSON)
 #   clipmark queue [review|refining|settled|all]      # where each note stands in the reviewer's queue (JSON)
 #   clipmark state remote/path.md                     # one note's review state
 #   clipmark mark remote/path.md reviewed|settle|reset  # the reviewer's call; agents should not settle
@@ -77,6 +78,9 @@ case "$cmd" in
     # Text flagged as AI-sounding, from every note: the quote, the feedback, the pattern.
     fmt="format=md"; [ "${2:-}" = json ] && fmt=""
     req GET "/api/slop?status=${1:-all}${fmt:+&$fmt}"; echo ;;
+  search|find)
+    [ $# -gt 0 ] || { echo 'usage: clipmark search <words or "a phrase">' >&2; exit 2; }
+    req GET "/api/search" -G --data-urlencode "q=$*"; echo ;;
   queue)
     req GET "/api/review?state=${1:-all}"; echo ;;
   state)
@@ -86,7 +90,7 @@ case "$cmd" in
   reopen)
     req PATCH "/api/notes/${1:?usage: clipmark reopen <remote/path.md> <id>}/comments/${2:?usage: clipmark reopen <remote/path.md> <id>}" -H 'Content-Type: application/json' -d '{"status":"open"}'; echo ;;
   *)
-    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

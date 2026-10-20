@@ -44,6 +44,12 @@ Publishing is one HTTP request, every change is kept, and there is no database.
   (or `clipmark slop`) also lists every flag across all notes, with the
   original text, its paragraph and the reviewer's reason kept after the
   rewrite, so the examples can be mined for what to stop writing.
+- **Search.** A box in every page header searches titles, text, paths and
+  short links. Every word must appear, quoted phrases must match as written,
+  and small typos in longer words are forgiven. Results show the matching text
+  and the review state, and opening one highlights the matches. No index or
+  database: notes are tokenized once and re-read only when they change.
+  `GET /api/search?q=` (or `clipmark search`) does the same for agents.
 - **Review queue.** The home page lists what is still **to review**, what
   you have read and sent back (**refining**) and what is **settled**. Open a
   note and choose **Keep refining** or **Settle**; opening alone changes

@@ -18,7 +18,7 @@ npm test       # node --test, across test/*.test.js
 ```
 
 `src/render.js` is the renderer (markdown-it + GFM extras), `src/store.js` the
-notes/versions/slugs/comments store, `src/comments.js` the comment anchoring and digest, `src/server.js` the HTTP API and pages, `src/diff.js` the block-level diff, `src/html.js`
+notes/versions/slugs/comments store, `src/comments.js` the comment anchoring and digest, `src/server.js` the HTTP API and pages, `src/diff.js` the block-level diff, `src/search.js` the fuzzy matcher and snippets, `src/html.js`
 the templates, `public/app.js` the clipboard and Mermaid code in the browser.
 
 Every async helper called from a route must be `return await`ed, not returned.
@@ -60,6 +60,12 @@ Changing any of these is a breaking change and needs coordination downstream.
   archive; `all` and `diff` are reserved slugs. The diff compares rendered
   blocks and old cells are `data-nocopy` so comments only anchor to the new
   side. Keep `bin/clipmark` and `public/llms.txt` in step.
+- **Search**: `GET /api/search?q=&limit=` needs no token and returns
+  `{ query, total, results: [{ path, slug, title, state, changed, openComments,
+  score, snippet, highlights, url, pathUrl }] }`; `/search` is the page.
+  `search` is a reserved slug. The per-note index in `Store.searchIndex` is keyed
+  by modified time and size, so anything that changes a note's text must change
+  one of them. Keep `bin/clipmark` and `public/llms.txt` in step.
 - **`version` in `/healthz` comes from `package.json`**, so the package version
   must match the release tag.
 

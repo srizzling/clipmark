@@ -29,6 +29,13 @@ Example:
 - `POST {{PUBLIC_URL}}/api/render` with Markdown in the body returns the HTML fragment without saving anything.
 - `GET {{PUBLIC_URL}}/healthz` returns `{ ok, version, notes, writable, renders }` and `503` when not ok.
 
+## Search
+
+- `GET {{PUBLIC_URL}}/api/search?q=<words>&limit=<n>` finds notes by title, text, path and short-link slug. No token needed. `limit` defaults to 25, at most 100.
+- Every word has to appear in the note, in any order; `"a quoted phrase"` has to appear as written. Words match as themselves, as the start of a longer word, inside one, or within a typo or two (longer words only). Title matches rank above path and slug, then text.
+- Response: `{ query, total, results: [{ path, slug, title, state, changed, openComments, mtime, score, snippet, highlights, url, pathUrl }] }`. `snippet` is plain text around the best match and `highlights` are `[start, end]` offsets into it. `total` can exceed the number of results returned. `state` is the review state described below.
+- `GET {{PUBLIC_URL}}/search?q=<words>` is the page for people; opening a result from it highlights the matches.
+
 ## Review comments
 
 People review a note in the browser by selecting text and commenting on it. You read those comments back, change the note, and mark them resolved. No token is needed for any of this.

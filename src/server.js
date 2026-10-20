@@ -11,7 +11,7 @@ import { timingSafeEqual } from "node:crypto";
 import { render, titleOf } from "./render.js";
 import { Store, BadPath, BadSlug, BadComment, BadReview, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
 import { digest, slopDigest } from "./comments.js";
-import { indexPage, dashboardPage, diffPage, notePage, editorPage, errorPage } from "./html.js";
+import { indexPage, dashboardPage, searchPage, diffPage, notePage, editorPage, errorPage } from "./html.js";
 import { diffNotes } from "./diff.js";
 import { zip } from "./zip.js";
 
@@ -77,7 +77,7 @@ export function createApp(opts = {}) {
   const pathUrl = (req, rel) => `${publicUrl(req)}/n/${encodeURI(rel)}`;
   const withUrls = (req, n) => ({ ...n, url: shortUrl(req, n.slug), pathUrl: pathUrl(req, n.path) });
 
-  async function renderNote(req, res, rel, v) {
+  async function renderNote(req, res, rel, v, q = "") {
     if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`);
     const note = v ? await store.readVersion(rel, v) : await store.read(rel);
     const versions = await store.versions(rel);
@@ -86,6 +86,7 @@ export function createApp(opts = {}) {
       siteTitle, note: { ...note, title: titleOf(note.markdown, rel) }, html, versions, viewing: v,
       publicUrl: publicUrl(req), shortUrl: shortUrl(req, note.slug),
       review: v ? null : store.describeReview(rel, note.markdown),
+      hits: v || !q ? [] : await store.searchWords(rel, q),
     }));
   }
 
@@ -118,6 +119,12 @@ export function createApp(opts = {}) {
         return send(res, 200, dashboardPage({ siteTitle, notes: await store.listReview() }));
       }
 
+      if (p === "/search" && req.method === "GET") {
+        const q = (url.searchParams.get("q") ?? "").slice(0, 200);
+        const out = await store.search(q, { limit: 25 });
+        return send(res, 200, searchPage({ siteTitle, q, total: out.total, results: out.results }));
+      }
+
       if (p === "/all" && req.method === "GET") {
         const list = await store.list();
         const notes = [];
@@ -146,7 +153,7 @@ export function createApp(opts = {}) {
       if (p.startsWith("/n/") && req.method === "GET") {
         const rel = p.slice(3);
         if (!rel.endsWith(".md")) return await serveFile(res, store.assetPath(rel));
-        return await renderNote(req, res, rel, url.searchParams.get("v"));
+        return await renderNote(req, res, rel, url.searchParams.get("v"), url.searchParams.get("q") ?? "");
       }
 
       // A zip of the Markdown sources. ?path=a.md&path=b.md picks notes (the
@@ -173,7 +180,7 @@ export function createApp(opts = {}) {
         const slug = p.slice(1);
         if (slug && !slug.includes("/") && SLUG_RE.test(slug) && !RESERVED.has(slug)) {
           const rel = store.pathOf(slug);
-          if (rel) return await renderNote(req, res, rel, url.searchParams.get("v"));
+          if (rel) return await renderNote(req, res, rel, url.searchParams.get("v"), url.searchParams.get("q") ?? "");
           return fail(res, 404, `nothing at /${slug}`, wantsJson);
         }
       }
@@ -228,6 +235,15 @@ export function createApp(opts = {}) {
           notes.push(withUrls(req, { ...n, title: titleOf(markdown, n.path) }));
         }
         return json(res, 200, { notes });
+      }
+
+      // Search over titles, bodies, paths and slugs. Read-only, so no token.
+      if (p === "/api/search" && req.method === "GET") {
+        const q = url.searchParams.get("q") ?? "";
+        if (!q.trim()) return fail(res, 400, "q required", true);
+        const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "", 10) || 25));
+        const out = await store.search(q, { limit });
+        return json(res, 200, { ...out, results: out.results.map((n) => withUrls(req, n)) });
       }
 
       // Review queue. Open to anyone who can reach the server, like comments:

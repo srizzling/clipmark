@@ -9,6 +9,7 @@ import { randomInt, createHash } from "node:crypto";
 import { ADJECTIVES, ANIMALS, VERBS } from "./words.js";
 import { locate, paragraphAround } from "./comments.js";
 import { titleOf } from "./render.js";
+import { parseQuery, indexNote, scoreNote } from "./search.js";
 
 const VERSIONS = ".versions";
 const COMMENTS = ".comments";
@@ -22,7 +23,7 @@ export const REVIEW_ACTIONS = ["reviewed", "settle", "reset"];
 export const REVIEW_STATES = ["review", "refining", "settled"];
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // First path segments the server owns; a slug may not shadow them.
-export const RESERVED = new Set(["n", "raw", "edit", "new", "export", "api", "assets", "vendor", "healthz", "all", "diff", "llms.txt", "favicon.ico", "robots.txt"]);
+export const RESERVED = new Set(["n", "raw", "edit", "new", "export", "api", "assets", "vendor", "healthz", "all", "diff", "search", "llms.txt", "favicon.ico", "robots.txt"]);
 
 export class BadSlug extends Error {
   constructor(msg) { super(msg); this.status = 400; }
@@ -102,6 +103,7 @@ export class Store {
     this.reviews = new Map();    // path -> { hash, version, reviewedAt, settled }
     this.reviewsFile = path.join(this.root, REVIEWS);
     this.reviewing = Promise.resolve();
+    this.searchIndex = new Map(); // path -> { mtime, size, hash, entry }
   }
 
   async init() {
@@ -417,9 +419,9 @@ export class Store {
     return this.reviewing;
   }
 
-  describeReview(rel, markdown) {
+  describeReview(rel, markdown, hash = hashOf(markdown)) {
     const rec = this.reviews.get(safePath(rel)) ?? null;
-    const { state, changed } = reviewStateOf(rec, hashOf(markdown));
+    const { state, changed } = reviewStateOf(rec, hash);
     return { state, changed, reviewedAt: rec?.reviewedAt ?? null, reviewedVersion: rec?.version ?? null };
   }
 
@@ -479,6 +481,54 @@ export class Store {
     }
     if (settled) await this.saveReviews();
     return { settled, kept };
+  }
+
+  // Search. Each note is tokenized once and the result kept until the file's
+  // size or modified time changes, so a search only re-reads what was edited.
+  // `n` is a row from list() (or anything with path, mtime and size).
+  async indexed(n) {
+    const hit = this.searchIndex.get(n.path);
+    if (hit && hit.mtime === n.mtime && hit.size === n.size) return hit;
+    const { markdown } = await this.read(n.path);
+    const fresh = { mtime: n.mtime, size: n.size, hash: hashOf(markdown), entry: indexNote(markdown, titleOf(markdown, n.path)) };
+    this.searchIndex.set(n.path, fresh);
+    return fresh;
+  }
+
+  // Best matches first, newest first among equals. Review state and open
+  // comment counts are filled in for the page of results only.
+  async search(query, { limit = 25 } = {}) {
+    const q = parseQuery(query);
+    if (!q.terms.length && !q.phrases.length) return { query: String(query ?? ""), total: 0, results: [] };
+    const listed = await this.list();
+    const live = new Set(listed.map((n) => n.path));
+    for (const p of this.searchIndex.keys()) if (!live.has(p)) this.searchIndex.delete(p);
+    const hits = [];
+    for (const n of listed) {
+      const ix = await this.indexed(n);
+      const r = scoreNote(ix.entry, q, n);
+      if (r) hits.push({ n, ix, r });
+    }
+    hits.sort((a, b) => b.r.score - a.r.score || (a.n.mtime < b.n.mtime ? 1 : -1));
+    const results = [];
+    for (const { n, ix, r } of hits.slice(0, limit)) {
+      const { comments } = await this.loadComments(n.path);
+      results.push({
+        ...n, title: ix.entry.title, score: r.score, snippet: r.snippet, highlights: r.highlights,
+        ...this.describeReview(n.path, null, ix.hash), openComments: comments.filter((c) => c.status === "open").length,
+      });
+    }
+    return { query: String(query), total: hits.length, results };
+  }
+
+  // The words in a note that a search matched, for highlighting it when opened
+  // from the results.
+  async searchWords(rel, query) {
+    const q = parseQuery(query);
+    if (!q.terms.length && !q.phrases.length) return [];
+    const note = await this.read(rel);
+    const ix = await this.indexed({ path: note.path, mtime: note.mtime, size: note.size });
+    return scoreNote(ix.entry, q, note)?.words ?? [];
   }
 
   // Any non-.md file under the notes dir (images referenced from notes).

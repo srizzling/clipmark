@@ -719,7 +719,34 @@
     };
     initReviewBar();
     initDiff();
+    initSearchHits(article);
     initReview(article);
+  }
+
+  // ------------------------------------------------------ search highlights
+  // Opened from a search result: paint the words the search matched, with the
+  // same overlay the comments use, so nothing is added to the article and
+  // "Copy for pasting" is unaffected.
+  function initSearchHits(article) {
+    let hits = [];
+    try { hits = JSON.parse(article.dataset.hits || "[]"); } catch { return; }
+    if (!hits.length || !(typeof Highlight === "function" && window.CSS && CSS.highlights)) return;
+    const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+");
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${hits.sort((a, b) => b.length - a.length).map(esc).join("|")})(?![\\p{L}\\p{N}])`, "giu");
+    const ranges = [];
+    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentElement.closest("[data-nocopy],[hidden],script,style") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    for (let n; (n = walker.nextNode());) {
+      for (const m of n.data.matchAll(re)) {
+        const r = document.createRange();
+        r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length);
+        ranges.push(r);
+      }
+    }
+    if (!ranges.length) return;
+    CSS.highlights.set("clipmark-search", new Highlight(...ranges));
+    ranges[0].startContainer.parentElement.scrollIntoView({ block: "center" });
   }
 
   // ---------------------------------------------------------- review bar
