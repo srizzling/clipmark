@@ -351,3 +351,15 @@ test("a note published again after review lists its changed blocks for the page 
   const old = await (await fetch(`${base}/n/marks/m.md?v=${(await (await fetch(`${base}/api/notes/marks/m.md/versions`)).json()).versions[1].id}`)).text();
   assert.doesNotMatch(old, /data-changes/, "an old version has nothing to mark");
 });
+
+test("posting a comment over the API moves the note to refining and the page shows it", async () => {
+  await put("rc/n.md", "# RC\n\nplease reword this sentence\n");
+  const state = async () => (await (await fetch(`${base}/api/notes/rc/n.md/review`)).json()).state;
+  assert.equal(await state(), "review");
+  const r = await fetch(`${base}/api/notes/rc/n.md/comments`, { method: "POST", body: JSON.stringify({ quote: "reword this", body: "too stiff" }) });
+  assert.equal(r.status, 201);
+  assert.equal(await state(), "refining");
+  const page = await (await fetch(`${base}/n/rc/n.md`)).text();
+  assert.match(page, /state-refining/);
+  assert.doesNotMatch(page, /data-action="reviewed"/);
+});

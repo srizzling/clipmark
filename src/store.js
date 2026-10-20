@@ -302,11 +302,19 @@ export class Store {
     if (version !== null && !VERSION_ID.test(version)) throw new BadComment("bad version id");
     if (!(await this.exists(rel))) throw new BadComment(`no note at ${rel}`, 404);
     version ??= (await this.versions(rel))[0]?.id ?? null;
-    return this.editComments(rel, (data) => {
+    const added = await this.editComments(rel, (data) => {
       const c = { id: `c${data.next++}`, kind, ...(pattern && { pattern }), quote, prefix, suffix, body, version, status: "open", created: new Date().toISOString() };
       data.comments.push(c);
       return c;
     });
+    // Commenting on the current text says it needs more work, so a note that
+    // was waiting for review (or settled) becomes "refining". A comment made on
+    // an old version says nothing about the current text, so it changes nothing.
+    if (!isSystem(rel) && version === ((await this.versions(rel))[0]?.id ?? null)) {
+      const { markdown } = await this.read(rel);
+      if (this.describeReview(rel, markdown).state !== "refining") await this.setReview(rel, "reviewed");
+    }
+    return added;
   }
 
   // patch: { status: "open" | "resolved", resolution, body }. Resolving stamps

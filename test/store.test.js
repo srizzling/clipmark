@@ -167,3 +167,52 @@ test("settleBefore settles only never-reviewed notes older than the cutoff", asy
     await assert.rejects(() => s.settleBefore("not a date"), /before must be a date/);
   } finally { await done(); }
 });
+
+test("commenting on the current text moves a waiting or settled note to refining", async () => {
+  const { s, done } = await tmpStore();
+  try {
+    await s.write("n.md", "# N\n\nsome words to comment on\n");
+    assert.equal((await s.reviewOf("n.md")).state, "review");
+    await s.addComment("n.md", { quote: "some words", body: "unclear" });
+    const first = await s.reviewOf("n.md");
+    assert.equal(first.state, "refining");
+    assert.equal(first.changed, false);
+
+    // Already refining: a second comment leaves the record alone.
+    await s.addComment("n.md", { quote: "to comment", body: "also this" });
+    assert.equal((await s.reviewOf("n.md")).reviewedAt, first.reviewedAt);
+
+    // Settled, then a comment: it is not done any more.
+    await s.setReview("n.md", "settle");
+    await s.addComment("n.md", { quote: "words", kind: "slop" });
+    assert.equal((await s.reviewOf("n.md")).state, "refining");
+
+    // Published again, then a comment: it counts as read at the current text.
+    await s.write("n.md", "# N\n\nsome other words to comment on\n");
+    assert.equal((await s.reviewOf("n.md")).state, "review");
+    await s.addComment("n.md", { quote: "other words", body: "better" });
+    const after = await s.reviewOf("n.md");
+    assert.equal(after.state, "refining");
+    assert.equal(after.changed, false);
+  } finally { await done(); }
+});
+
+test("a comment on an old version, resolving, and system notes do not change review state", async () => {
+  const { s, done } = await tmpStore();
+  try {
+    const v1 = await s.write("n.md", "# N\n\nfirst words here\n");
+    await s.write("n.md", "# N\n\nsecond words here\n");
+    await s.addComment("n.md", { quote: "first words", body: "old", version: v1.version });
+    assert.equal((await s.reviewOf("n.md")).state, "review", "made on a version that is no longer current");
+
+    const c = await s.addComment("n.md", { quote: "second words", body: "now" });
+    assert.equal((await s.reviewOf("n.md")).state, "refining");
+    await s.setReview("n.md", "settle");
+    await s.updateComment("n.md", c.id, { status: "resolved" });
+    assert.equal((await s.reviewOf("n.md")).state, "settled", "resolving is not a review decision");
+
+    await s.write("_probe/roundtrip.md", "# p\n\nfixture words\n");
+    await s.addComment("_probe/roundtrip.md", { quote: "fixture words", body: "x" });
+    assert.equal((await s.reviewOf("_probe/roundtrip.md")).state, "review", "monitor fixtures stay out of review");
+  } finally { await done(); }
+});

@@ -678,7 +678,8 @@
         closeForm();
         getSelection().removeAllRanges();
         await load();
-        toast(kind === "slop" ? "Flagged as slop" : "Comment added");
+        const moved = await refreshReviewBars();
+        toast((kind === "slop" ? "Flagged as slop" : "Comment added") + (moved ? ". Moved to Refining" : ""));
       } catch (err) { toast(err.message || String(err), true); }
       submit.disabled = false;
     };
@@ -770,6 +771,24 @@
     };
     if (box) { box.checked = localStorage.getItem("clipmark.showChanges") !== "0"; box.onchange = apply; }
     apply();
+  }
+
+  // Commenting can change a note's review state on the server. Take the bars
+  // from a fresh copy of the page, so the wording and buttons stay the server's,
+  // and report whether the note just became "refining".
+  async function refreshReviewBars() {
+    const bars = $$(".reviewbar");
+    if (!bars.length) return false;
+    try {
+      const doc = new DOMParser().parseFromString(await (await fetch(location.href)).text(), "text/html");
+      const fresh = $$(".reviewbar", doc);
+      if (fresh.length !== bars.length) return false;
+      const was = bars[0].classList.contains("state-refining");
+      bars.forEach((old, i) => old.replaceWith(fresh[i]));
+      if (!$("#show-changes") && window.CSS && CSS.highlights) CSS.highlights.delete("clipmark-changed");
+      initReviewBar();
+      return !was && fresh[0].classList.contains("state-refining");
+    } catch { return false; }
   }
 
   // ---------------------------------------------------------- review bar

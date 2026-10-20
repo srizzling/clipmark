@@ -58,7 +58,7 @@ The person reviewing your notes keeps a queue. Each note is in one state, worked
 Notes under `_probe/` are monitoring fixtures and never appear in the queue or in search.
 
 - `review`: not reviewed yet, or published again since they last reviewed it (`changed: true`).
-- `refining`: they have read it and sent it back for more work. Check its open comments.
+- `refining`: they have read it and sent it back for more work. Check its open comments. Adding a comment (or a slop flag) to a note on its current text puts it here from `review` or `settled`; resolving comments does not change the state.
 - `settled`: they consider it done.
 
 - `GET {{PUBLIC_URL}}/api/review` returns `{ counts: { review, refining, settled }, notes: [{ path, slug, title, state, changed, reviewedAt, reviewedVersion, versions, openComments, mtime, url, pathUrl }] }`. `?state=review|refining|settled` filters. This answers "what is still waiting on the reviewer, and what is waiting on me".

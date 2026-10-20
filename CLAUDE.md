@@ -56,7 +56,10 @@ Changing any of these is a breaking change and needs coordination downstream.
   (`action`: `reviewed`, `settle`, `reset`) and `POST /api/review/settle-before`
   need no token, like comments. State is derived (`reviewStateOf` in
   `src/store.js`): a content change after a review means `review` again, so
-  nothing may write review state on publish. `/` is the queue and `/all` the
+  nothing may write review state on publish. The one other writer is
+  `addComment`: a comment on the current text moves a `review` or `settled`
+  note to `refining`. Comments on an old version, resolving, and `_probe/` notes
+  do not. `/` is the queue and `/all` the
   archive; `all` and `diff` are reserved slugs. The diff compares rendered
   blocks and old cells are `data-nocopy` so comments only anchor to the new
   side. Notes under `_probe/` (monitor fixtures, republished constantly) are
