@@ -44,6 +44,14 @@ Publishing is one HTTP request, every change is kept, and there is no database.
   (or `clipmark slop`) also lists every flag across all notes, with the
   original text, its paragraph and the reviewer's reason kept after the
   rewrite, so the examples can be mined for what to stop writing.
+- **Published copies.** Record where a note is published elsewhere, such as a
+  Confluence page: paste the link in the toolbar and it becomes an **Open in
+  Confluence** button, on the note, the review queue and `/all`. The site
+  remembers which text was published, so when the note changes afterwards the
+  link is marked **out of date** with a diff from the version that was
+  published. Agents see the same thing in the publish response and from
+  `GET /api/links?stale=1` (or `clipmark links stale`). It only notices the
+  note changing here; edits made on the other side are not visible.
 - **Search.** A box in every page header searches titles, text, paths and
   short links. Every word must appear, quoted phrases must match as written,
   and small typos in longer words are forgiven. Results show the matching text

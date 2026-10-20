@@ -15,6 +15,8 @@
 #   clipmark resolve remote/path.md c1 [what you changed] # mark a comment done; reopen undoes it
 #   clipmark slop [open|resolved|all] [json]          # every slop flag across all notes, grouped by pattern
 #   clipmark search words or "a phrase"               # find notes by title, text, path or slug (JSON)
+#   clipmark link remote/path.md [url|--refresh|--clear]  # where it is published (Confluence etc.); no arg reads it
+#   clipmark links [stale]                            # notes published elsewhere; "stale" = the note has changed since
 #   clipmark queue [review|refining|settled|all]      # where each note stands in the reviewer's queue (JSON)
 #   clipmark state remote/path.md                     # one note's review state
 #   clipmark mark remote/path.md reviewed|settle|reset  # the reviewer's call; agents should not settle
@@ -81,6 +83,17 @@ case "$cmd" in
   search|find)
     [ $# -gt 0 ] || { echo 'usage: clipmark search <words or "a phrase">' >&2; exit 2; }
     req GET "/api/search" -G --data-urlencode "q=$*"; echo ;;
+  link)
+    p="${1:?usage: clipmark link <remote/path.md> [url|--refresh|--clear]}"
+    case "${2:-}" in
+      "")        req GET "/api/notes/$p/link" ;;
+      --clear)   req DELETE "/api/notes/$p/link" ;;
+      --refresh) req PUT "/api/notes/$p/link" -H 'Content-Type: application/json' -d '{}' ;;
+      *)         u="$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+                 req PUT "/api/notes/$p/link" -H 'Content-Type: application/json' -d "{\"url\":\"$u\"}" ;;
+    esac; echo ;;
+  links)
+    req GET "/api/links${1:+?stale=1}"; echo ;;
   queue)
     req GET "/api/review?state=${1:-all}"; echo ;;
   state)
@@ -90,7 +103,7 @@ case "$cmd" in
   reopen)
     req PATCH "/api/notes/${1:?usage: clipmark reopen <remote/path.md> <id>}/comments/${2:?usage: clipmark reopen <remote/path.md> <id>}" -H 'Content-Type: application/json' -d '{"status":"open"}'; echo ;;
   *)
-    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

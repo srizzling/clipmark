@@ -363,3 +363,40 @@ test("posting a comment over the API moves the note to refining and the page sho
   assert.match(page, /state-refining/);
   assert.doesNotMatch(page, /data-action="reviewed"/);
 });
+
+test("a published-copy link is recorded, shown, and flagged to whoever publishes next", async () => {
+  const url = "https://example.atlassian.net/wiki/spaces/T/pages/42/Doc";
+  await put("links/doc.md", "# Doc\n\nfirst draft\n");
+  const link = (method, body) => fetch(`${base}/api/notes/links/doc.md/link`, { method, body: body && JSON.stringify(body) });
+
+  assert.equal((await (await link("GET")).json()).link, null);
+  assert.equal((await link("PUT", { url: "javascript:alert(1)" })).status, 400);
+  assert.equal((await link("PUT", {})).status, 400, "nothing to keep yet");
+  const set = await (await link("PUT", { url })).json();
+  assert.equal(set.link.label, "Confluence");
+  assert.equal(set.link.stale, false);
+
+  const page = await (await fetch(`${base}/n/links/doc.md`)).text();
+  assert.match(page, /Open in Confluence/);
+  assert.doesNotMatch(page, /out of date/);
+  assert.match(await (await fetch(`${base}/all`)).text(), /↗ Confluence/);
+
+  // The agent that publishes next is told the published copy is behind.
+  const again = await (await put("links/doc.md", "# Doc\n\nsecond draft\n")).json();
+  assert.equal(again.link.stale, true);
+  assert.equal(again.link.url, url);
+  assert.equal((await (await fetch(`${base}/api/links?stale=1`)).json()).links.some((l) => l.path === "links/doc.md"), true);
+  const row = (await (await fetch(`${base}/api/review`)).json()).notes.find((n) => n.path === "links/doc.md");
+  assert.equal(row.link.stale, true);
+  assert.equal((await (await fetch(`${base}/api/notes/links/doc.md`)).json()).link.stale, true);
+  const stalePage = await (await fetch(`${base}/n/links/doc.md`)).text();
+  assert.match(stalePage, /out of date/);
+  assert.match(stalePage, new RegExp(`/diff/links/doc\\.md\\?from=`));
+  assert.match(await (await fetch(`${base}/`)).text(), /Confluence out of date/);
+
+  assert.equal((await (await link("PUT", {})).json()).link.stale, false);
+  assert.equal((await (await fetch(`${base}/api/links?stale=1`)).json()).links.some((l) => l.path === "links/doc.md"), false);
+  assert.equal((await (await link("DELETE")).json()).link, null);
+  assert.equal((await fetch(`${base}/api/notes/links/missing.md/link`)).status, 404);
+  assert.equal((await put("links/new.md", "# New\n")).status, 201);
+});

@@ -68,6 +68,14 @@ Changing any of these is a breaking change and needs coordination downstream.
   highlight by position (`data-changes`); the client paints nothing unless its
   top-level element count matches, so keep that overlay-only too. Keep
   `bin/clipmark` and `public/llms.txt` in step.
+- **Published copies**: `GET/PUT/DELETE /api/notes/<path>/link` and
+  `GET /api/links[?stale=1]` need no token. A link is `{ url, label, stale,
+  publishedVersion, linkedAt }`; `stale` is derived from the content hash stored
+  in `.links.json` and must never be stored or touch review state. The `PUT
+  /api/notes/<path>` publish response carries `link` so a publishing agent
+  learns the published copy is behind; that field is additive to the publish
+  contract. Only http(s) URLs without credentials are stored. Keep
+  `bin/clipmark` and `public/llms.txt` in step.
 - **Search**: `GET /api/search?q=&limit=` needs no token and returns
   `{ query, total, results: [{ path, slug, title, state, changed, openComments,
   score, snippet, highlights, url, pathUrl }] }`; `/search` is the page.

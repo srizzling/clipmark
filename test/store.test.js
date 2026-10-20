@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Store, safePath, BadPath } from "../src/store.js";
+import { Store, safePath, BadPath, validLink, linkLabel, BadLink } from "../src/store.js";
 
 async function tmpStore() {
   const dir = await mkdtemp(path.join(tmpdir(), "clipmark-"));
@@ -214,5 +214,55 @@ test("a comment on an old version, resolving, and system notes do not change rev
     await s.write("_probe/roundtrip.md", "# p\n\nfixture words\n");
     await s.addComment("_probe/roundtrip.md", { quote: "fixture words", body: "x" });
     assert.equal((await s.reviewOf("_probe/roundtrip.md")).state, "review", "monitor fixtures stay out of review");
+  } finally { await done(); }
+});
+
+test("links accept only plain http(s) URLs and are labelled by where they point", () => {
+  assert.equal(validLink(" https://example.atlassian.net/wiki/spaces/X/pages/1/Title "), "https://example.atlassian.net/wiki/spaces/X/pages/1/Title");
+  for (const bad of ["", "   ", "javascript:alert(1)", "ftp://x.test/a", "https://u:p@x.test/", "not a url", "data:text/html,hi", "https://x.test/" + "a".repeat(2000)]) {
+    assert.throws(() => validLink(bad), BadLink, bad.slice(0, 30));
+  }
+  assert.equal(linkLabel("https://example.atlassian.net/wiki/spaces/X"), "Confluence");
+  assert.equal(linkLabel("https://wiki.example.com/display/TEAM/Page"), "Confluence");
+  assert.equal(linkLabel("https://confluence.example.com/pages/1"), "Confluence");
+  assert.equal(linkLabel("https://docs.example.org/d/abc"), "docs.example.org");
+});
+
+test("a link goes out of date when the note changes, and can be marked up to date", async () => {
+  const { s, dir, done } = await tmpStore();
+  try {
+    await s.write("n.md", "# N\n\nfirst\n");
+    assert.equal(await s.linkOf("n.md"), null);
+    const v1 = (await s.versions("n.md"))[0].id;
+
+    const set = await s.setLink("n.md", "https://example.atlassian.net/wiki/x");
+    assert.equal(set.stale, false);
+    assert.equal(set.label, "Confluence");
+    assert.equal(set.publishedVersion, v1);
+
+    await s.write("n.md", "# N\n\nsecond\n");
+    const stale = await s.linkOf("n.md");
+    assert.equal(stale.stale, true);
+    assert.equal(stale.publishedVersion, v1, "points at the version that was published, for the diff");
+
+    // Review state is a separate thing: the stale link did not touch it.
+    assert.equal((await s.reviewOf("n.md")).state, "review");
+
+    assert.equal((await s.setLink("n.md", undefined)).stale, false, "no url keeps the link and re-stamps it");
+    await s.write("n.md", "# N\n\nthird\n");
+    assert.equal((await s.listLinks({ stale: true })).length, 1);
+    assert.equal((await s.listLinks({ stale: true }))[0].path, "n.md");
+
+    // Survives a restart; restoring the published text makes it current again.
+    const fresh = new Store(dir);
+    await fresh.init();
+    assert.equal((await fresh.linkOf("n.md")).url, "https://example.atlassian.net/wiki/x");
+    await fresh.write("n.md", "# N\n\nsecond\n");
+    assert.equal((await fresh.linkOf("n.md")).stale, false);
+
+    await fresh.clearLink("n.md");
+    assert.equal(await fresh.linkOf("n.md"), null);
+    await assert.rejects(() => fresh.setLink("n.md", undefined), /url required/);
+    await assert.rejects(() => fresh.setLink("n.md", "javascript:alert(1)"), BadLink);
   } finally { await done(); }
 });

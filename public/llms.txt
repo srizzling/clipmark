@@ -29,6 +29,17 @@ Example:
 - `POST {{PUBLIC_URL}}/api/render` with Markdown in the body returns the HTML fragment without saving anything.
 - `GET {{PUBLIC_URL}}/healthz` returns `{ ok, version, notes, writable, renders }` and `503` when not ok.
 
+## Published copies
+
+A note can be published somewhere else too (a Confluence page, a shared doc). The reviewer records that link on the note, along with the text it was published with, so it is possible to tell when the note has moved on. No token is needed.
+
+- `link` is `null` or `{ url, label, stale, publishedVersion, linkedAt }`. `stale: true` means the note's text has changed since the link was recorded, so the published copy is behind. `publishedVersion` is the version that was published: `GET {{PUBLIC_URL}}/diff/<path>?from=<publishedVersion>` shows what to carry over.
+- **The response to your `PUT` includes `link`.** If it says `stale: true`, tell the person that the published copy needs updating, and update it if that is your job. Do not clear the flag until the published copy really matches.
+- `GET {{PUBLIC_URL}}/api/links?stale=1` lists every note whose published copy is behind: `{ links: [{ path, slug, title, url, label, stale, publishedVersion, linkedAt, mtime }] }`. Omit `stale` for every linked note.
+- `GET {{PUBLIC_URL}}/api/notes/<path>/link` returns `{ path, link }`. `PUT` the same URL with `{ "url": "<page link>" }` records or changes the link, and says the published copy matches the note as it is now. `PUT` with `{}` keeps the URL and says it again once you have updated the published copy. `DELETE` removes it. Only `http` and `https` links are accepted.
+- `link` also appears in `GET /api/notes`, `GET /api/notes/<path>`, `/api/review` and `/api/search`.
+- Edits made on the published copy itself are not visible here. This only notices the note changing.
+
 ## Search
 
 - `GET {{PUBLIC_URL}}/api/search?q=<words>&limit=<n>` finds notes by title, text, path and short-link slug. No token needed. `limit` defaults to 25, at most 100.

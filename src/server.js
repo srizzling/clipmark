@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import { timingSafeEqual } from "node:crypto";
 
 import { render, titleOf } from "./render.js";
-import { Store, isSystem, BadPath, BadSlug, BadComment, BadReview, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
+import { Store, isSystem, BadPath, BadSlug, BadComment, BadReview, BadLink, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
 import { digest, slopDigest } from "./comments.js";
 import { indexPage, dashboardPage, searchPage, diffPage, notePage, editorPage, errorPage } from "./html.js";
 import { diffNotes } from "./diff.js";
@@ -98,7 +98,7 @@ export function createApp(opts = {}) {
     return send(res, 200, notePage({
       siteTitle, note: { ...note, title: titleOf(note.markdown, rel) }, html, versions, viewing: v,
       publicUrl: publicUrl(req), shortUrl: shortUrl(req, note.slug),
-      review, changes,
+      review, changes, link: store.describeLink(rel, note.markdown),
       hits: v || !q ? [] : await store.searchWords(rel, q),
     }));
   }
@@ -144,7 +144,7 @@ export function createApp(opts = {}) {
         for (const n of list) {
           const { markdown } = await store.read(n.path);
           const versions = await store.versions(n.path);
-          notes.push({ ...n, title: titleOf(markdown, n.path), versions: versions.length });
+          notes.push({ ...n, title: titleOf(markdown, n.path), versions: versions.length, link: store.describeLink(n.path, markdown) });
         }
         return send(res, 200, indexPage({ siteTitle, notes, publicUrl: publicUrl(req), hasToken: !!token }));
       }
@@ -245,7 +245,7 @@ export function createApp(opts = {}) {
         const notes = [];
         for (const n of list) {
           const { markdown } = await store.read(n.path);
-          notes.push(withUrls(req, { ...n, title: titleOf(markdown, n.path) }));
+          notes.push(withUrls(req, { ...n, title: titleOf(markdown, n.path), link: store.describeLink(n.path, markdown) }));
         }
         return json(res, 200, { notes });
       }
@@ -274,6 +274,30 @@ export function createApp(opts = {}) {
         try { body = JSON.parse(await readBody(req)); } catch { throw new BadReview("body must be JSON"); }
         return json(res, 200, await store.settleBefore(body?.before));
       }
+      // Where a note is published elsewhere, and whether that copy is behind.
+      // Open to anyone who can reach the server, like review: it is bookkeeping.
+      if (p === "/api/links" && req.method === "GET") {
+        const stale = ["1", "true", "yes"].includes(url.searchParams.get("stale") ?? "");
+        return json(res, 200, { links: (await store.listLinks({ stale })).map((n) => withUrls(req, n)) });
+      }
+      const lk = p.match(/^\/api\/notes\/(.+\.md)\/link$/);
+      if (lk) {
+        const rel = lk[1];
+        if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`, true);
+        if (req.method === "GET") return json(res, 200, { path: rel, link: await store.linkOf(rel) });
+        if (req.method === "PUT" || req.method === "POST") {
+          let body;
+          try { body = JSON.parse(await readBody(req)); } catch { throw new BadLink("body must be JSON"); }
+          await store.setLink(rel, body?.url);
+          return json(res, 200, { path: rel, link: await store.linkOf(rel) });
+        }
+        if (req.method === "DELETE") {
+          await store.clearLink(rel);
+          return json(res, 200, { path: rel, link: null });
+        }
+        return fail(res, 405, "method not allowed", true);
+      }
+
       const rv = p.match(/^\/api\/notes\/(.+\.md)\/review$/);
       if (rv) {
         const rel = rv[1];
@@ -335,7 +359,7 @@ export function createApp(opts = {}) {
           if (wantVersions) return json(res, 200, { path: rel, versions });
           const v = url.searchParams.get("v");
           const note = v ? await store.readVersion(rel, v) : await store.read(rel);
-          return json(res, 200, withUrls(req, { ...note, title: titleOf(note.markdown, rel), versions }));
+          return json(res, 200, withUrls(req, { ...note, title: titleOf(note.markdown, rel), versions, link: v ? undefined : store.describeLink(rel, note.markdown) }));
         }
         if (req.method === "PUT" || req.method === "POST") {
           if (!authorised(req)) return fail(res, 401, "publish token required", true);
@@ -345,7 +369,8 @@ export function createApp(opts = {}) {
           // is assigned on first publish and kept.
           const slug = url.searchParams.get("slug") || req.headers["x-slug"] || null;
           const result = await store.write(rel, markdown, { slug });
-          return json(res, result.created ? 201 : 200, withUrls(req, result));
+          // If the note is published elsewhere, say whether that copy is now behind.
+          return json(res, result.created ? 201 : 200, withUrls(req, { ...result, link: store.describeLink(rel, markdown) }));
         }
         if (req.method === "DELETE") {
           if (!authorised(req)) return fail(res, 401, "publish token required", true);
@@ -357,7 +382,7 @@ export function createApp(opts = {}) {
 
       return fail(res, 404, "not found", wantsJson);
     } catch (err) {
-      if (err instanceof BadPath || err instanceof BadSlug || err instanceof BadComment || err instanceof BadReview || err.status) return fail(res, err.status || 400, err.message, wantsJson);
+      if (err instanceof BadPath || err instanceof BadSlug || err instanceof BadComment || err instanceof BadReview || err instanceof BadLink || err.status) return fail(res, err.status || 400, err.message, wantsJson);
       if (err.code === "ENOENT") return fail(res, 404, "not found", wantsJson);
       console.error(err);
       return fail(res, 500, "internal error", wantsJson);

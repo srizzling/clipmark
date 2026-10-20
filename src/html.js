@@ -33,6 +33,35 @@ ${body}
 </html>`;
 }
 
+// A link to where the note is published elsewhere, and whether that copy is
+// behind. `from` on the diff is the version that was published.
+function linkPills(n, link) {
+  if (!link) return "";
+  return `<a class="pill link" href="${h(link.url)}" target="_blank" rel="noopener" title="${h(link.url)}">↗ ${h(link.label)}</a>` +
+    (link.stale ? `<a class="pill changed" href="/diff/${encodeURI(n.path)}${link.publishedVersion ? `?from=${encodeURIComponent(link.publishedVersion)}` : ""}" title="The note has changed since you recorded this link. See what to update.">${h(link.label)} out of date</a>` : "");
+}
+
+// The toolbar control on a note page: open the published copy, and change or
+// remove the link. The form is plain HTML; app.js sends it.
+function linkControl(note, link) {
+  const enc = encodeURI(note.path);
+  const open = link
+    ? `<a class="btn" href="${h(link.url)}" target="_blank" rel="noopener" title="${h(link.url)}">Open in ${h(link.label)}</a>` +
+      (link.stale ? `<a class="pill changed" href="/diff/${enc}${link.publishedVersion ? `?from=${encodeURIComponent(link.publishedVersion)}` : ""}" title="The note has changed since this link was recorded. See what to update.">out of date</a>` : "")
+    : "";
+  return `${open}<details class="linkbox" data-path="${h(note.path)}">
+      <summary title="${link ? "Change or remove the link to the published copy" : "Record where this note is published, such as a Confluence page"}">${link ? "Link" : "Add link"}</summary>
+      <div class="pop">
+        <form class="linkform">
+          <input type="url" name="url" placeholder="Paste the page link, e.g. a Confluence URL" value="${h(link?.url ?? "")}" required>
+          <button type="submit" class="primary">Save</button>
+        </form>
+        ${link?.stale ? `<p class="muted">The note changed after this link was recorded. Update the published copy, then <button type="button" data-link="refresh">Mark up to date</button></p>` : ""}
+        ${link ? `<button type="button" data-link="clear">Remove link</button>` : `<p class="muted">Saving says the published copy matches the note as it is now.</p>`}
+      </div>
+    </details>`;
+}
+
 function when(iso) {
   return `<time datetime="${h(iso)}" title="${h(iso)}">${h(iso.replace("T", " ").slice(0, 16))}Z</time>`;
 }
@@ -42,7 +71,7 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
     ? notes.map((n) => `
       <tr>
         <td class="pick"><input type="checkbox" name="path" value="${h(n.path)}" aria-label="Select ${h(n.title)}"></td>
-        <td><a href="/${h(n.slug)}">${h(n.title)}</a><div class="muted mono">${h(n.path)}</div></td>
+        <td><a href="/${h(n.slug)}">${h(n.title)}</a> ${linkPills(n, n.link)}<div class="muted mono">${h(n.path)}</div></td>
         <td><a class="mono slug" href="/${h(n.slug)}">/${h(n.slug)}</a></td>
         <td>${when(n.mtime)}</td>
         <td class="num">${n.versions}</td>
@@ -145,6 +174,7 @@ export function dashboardPage({ siteTitle, notes }) {
           <a class="title" href="/${h(n.slug)}">${h(n.title)}</a>
           ${n.changed ? `<a class="pill changed" href="/diff/${encodeURI(n.path)}" title="This note was published again after you reviewed it. See what changed.">changed since you read it</a>` : ""}
           ${n.openComments ? `<span class="pill open" title="Open comments and flags">${n.openComments} open comment${n.openComments === 1 ? "" : "s"}</span>` : ""}
+          ${linkPills(n, n.link)}
           <div class="muted mono">${h(n.path)}</div>
         </div>
         <div class="meta muted">
@@ -264,7 +294,7 @@ ${reviewBar(note, review)}
   return layout({ title: `Diff: ${note.title}`, siteTitle, body, bodyClass: "note diffpage" });
 }
 
-export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review, changes = null, hits = [] }) {
+export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review, changes = null, link = null, hits = [] }) {
   const path = note.path;
   const enc = encodeURI(path);
   const current = !viewing;
@@ -303,6 +333,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     <button id="copy-rich" class="primary" title="Copy the rendered note as rich text, ready to paste into an editor">Copy for pasting</button>
     <button id="copy-md" title="Copy the Markdown source">Copy Markdown</button>
     <button id="toggle-comments" title="Review comments. Select text in the note to add one.">Comments <span id="comment-count" class="pill" hidden></span></button>
+    ${current ? linkControl(note, link) : ""}
     ${current && versions.length > 1 ? `<a class="btn" href="/diff/${enc}" title="Compare with an earlier version">Diff</a>` : ""}
     ${current ? `<a class="btn" href="/edit/${enc}">Edit</a>` : ""}
     <a class="btn" href="/raw/${enc}${viewing ? `?v=${encodeURIComponent(viewing)}` : ""}" title="${h(path)}">Raw</a>

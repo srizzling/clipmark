@@ -211,3 +211,13 @@ mark { background: #fff2a8; color: inherit; border-radius: 2px; }
 .stickyhead { position: sticky; top: 0; z-index: 5; background: var(--bg); }
 .stickyhead .toolbar { position: static; }
 .reviewfoot { margin-top: 2.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bar); }
+
+/* Link to the published copy */
+details.linkbox { position: relative; }
+details.linkbox summary { cursor: pointer; list-style: none; padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
+details.linkbox .pop { position: absolute; right: 0; z-index: 15; margin-top: 0.3rem; width: 22rem; max-width: 90vw; padding: 0.7rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
+details.linkbox .pop p { margin: 0.5rem 0 0; font-size: 0.85rem; }
+.linkform { display: flex; gap: 0.4rem; }
+.linkform input { flex: 1; min-width: 0; }
+.pill.link { background: var(--info); text-decoration: none; color: inherit; margin-left: 0.3rem; }
+.pill.changed { background: var(--warning); text-decoration: none; color: inherit; margin-left: 0.3rem; }

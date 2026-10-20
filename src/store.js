@@ -15,6 +15,7 @@ const VERSIONS = ".versions";
 const COMMENTS = ".comments";
 const SLUGS = ".slugs.json";
 const REVIEWS = ".review.json";
+const LINKS = ".links.json";
 const VERSION_ID = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.[0-9]{3}Z$/;
 const LIMITS = { quote: 4000, body: 5000, context: 200, pattern: 60 };
 export const KINDS = ["comment", "slop"];
@@ -49,6 +50,10 @@ export class BadReview extends Error {
   constructor(msg, status = 400) { super(msg); this.status = status; }
 }
 
+export class BadLink extends Error {
+  constructor(msg, status = 400) { super(msg); this.status = status; }
+}
+
 export class BadComment extends Error {
   constructor(msg, status = 400) { super(msg); this.status = status; }
 }
@@ -80,6 +85,25 @@ export function safePath(p) {
 // review, so they stay out of the review queue and out of search.
 export const isSystem = (rel) => safePath(rel).startsWith("_probe/");
 
+// A link to where a note was published elsewhere (a wiki page, a shared doc).
+// Only plain http(s) links are kept, so nothing stored can run script when
+// someone clicks it, and no credentials ride along in the URL.
+export function validLink(url) {
+  if (typeof url !== "string" || !url.trim()) throw new BadLink("url required");
+  if (url.length > 2000) throw new BadLink("url is longer than 2000 characters");
+  let u;
+  try { u = new URL(url.trim()); } catch { throw new BadLink("url is not a valid link"); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new BadLink("url must be http or https");
+  if (u.username || u.password) throw new BadLink("url must not contain a username or password");
+  return u.href;
+}
+
+// "Confluence" for Atlassian-style addresses, otherwise the host.
+export function linkLabel(url) {
+  const u = new URL(url);
+  return /(^|\.)atlassian\.net$|(^|\.)confluence\./i.test(u.hostname) || /^\/(wiki|display)\//.test(u.pathname) ? "Confluence" : u.hostname;
+}
+
 const hashOf = (markdown) => createHash("sha256").update(markdown).digest("hex").slice(0, 16);
 
 // Where a note is in review is worked out, not stored: the record only says
@@ -108,6 +132,9 @@ export class Store {
     this.reviewsFile = path.join(this.root, REVIEWS);
     this.reviewing = Promise.resolve();
     this.searchIndex = new Map(); // path -> { mtime, size, hash, entry }
+    this.links = new Map();       // path -> { url, hash, version, linkedAt }
+    this.linksFile = path.join(this.root, LINKS);
+    this.linking = Promise.resolve();
   }
 
   async init() {
@@ -119,6 +146,9 @@ export class Store {
     try {
       for (const [p, rec] of Object.entries(JSON.parse(await fs.readFile(this.reviewsFile, "utf8")))) this.reviews.set(p, rec);
     } catch { /* nothing reviewed yet */ }
+    try {
+      for (const [p, rec] of Object.entries(JSON.parse(await fs.readFile(this.linksFile, "utf8")))) this.links.set(p, rec);
+    } catch { /* nothing linked yet */ }
   }
 
   // Slugs live in one small JSON file. Writes go through a chain so two
@@ -468,7 +498,7 @@ export class Store {
       const r = this.describeReview(n.path, markdown);
       const [versions, { comments }] = await Promise.all([this.versions(n.path), this.loadComments(n.path)]);
       out.push({
-        ...n, title: titleOf(markdown, n.path), ...r, versions: versions.length,
+        ...n, title: titleOf(markdown, n.path), ...r, versions: versions.length, link: this.describeLink(n.path, markdown),
         openComments: comments.filter((c) => c.status === "open").length,
       });
     }
@@ -494,6 +524,62 @@ export class Store {
     }
     if (settled) await this.saveReviews();
     return { settled, kept };
+  }
+
+  // Published-copy links. The record keeps the hash and version of the text
+  // that was published, so "the note has changed since" is worked out, never
+  // stored: stale means the text now differs from what was recorded.
+  saveLinks() {
+    this.linking = this.linking.then(async () => {
+      const obj = Object.fromEntries([...this.links.entries()].sort());
+      const tmp = `${this.linksFile}.${process.pid}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(obj, null, 2) + "\n");
+      await fs.rename(tmp, this.linksFile);
+    });
+    return this.linking;
+  }
+
+  describeLink(rel, markdown, hash = hashOf(markdown)) {
+    const rec = this.links.get(safePath(rel));
+    if (!rec) return null;
+    return { url: rec.url, label: linkLabel(rec.url), stale: rec.hash !== hash, publishedVersion: rec.version, linkedAt: rec.linkedAt };
+  }
+
+  async linkOf(rel) {
+    const { markdown } = await this.read(rel);
+    return this.describeLink(rel, markdown);
+  }
+
+  // Set or change the link, saying the published copy matches the text as it
+  // is now. With no url, keep the current one and say it again ("mark up to date").
+  async setLink(rel, url) {
+    const p = safePath(rel);
+    const { markdown } = await this.read(p);
+    const keep = url === undefined || url === null ? this.links.get(p)?.url : null;
+    if ((url === undefined || url === null) && !keep) throw new BadLink("url required");
+    this.links.set(p, {
+      url: keep ?? validLink(url), hash: hashOf(markdown),
+      version: (await this.versions(p))[0]?.id ?? null, linkedAt: new Date().toISOString(),
+    });
+    await this.saveLinks();
+    return this.linkOf(p);
+  }
+
+  async clearLink(rel) {
+    if (this.links.delete(safePath(rel))) await this.saveLinks();
+  }
+
+  // Every linked note, optionally only the ones whose published copy is behind.
+  async listLinks({ stale = false } = {}) {
+    const out = [];
+    for (const p of [...this.links.keys()].sort()) {
+      let note;
+      try { note = await this.read(p); } catch { continue; } // deleted since
+      const link = this.describeLink(p, note.markdown);
+      if (stale && !link.stale) continue;
+      out.push({ path: p, slug: note.slug, title: titleOf(note.markdown, p), mtime: note.mtime, ...link });
+    }
+    return out;
   }
 
   // Search. Each note is tokenized once and the result kept until the file's
@@ -528,7 +614,7 @@ export class Store {
       const { comments } = await this.loadComments(n.path);
       results.push({
         ...n, title: ix.entry.title, score: r.score, snippet: r.snippet, highlights: r.highlights,
-        ...this.describeReview(n.path, null, ix.hash), openComments: comments.filter((c) => c.status === "open").length,
+        ...this.describeReview(n.path, null, ix.hash), link: this.describeLink(n.path, null, ix.hash), openComments: comments.filter((c) => c.status === "open").length,
       });
     }
     return { query: String(query), total: hits.length, results };

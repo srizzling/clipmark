@@ -719,6 +719,7 @@
       else toast("Copy failed", true);
     };
     initReviewBar();
+    initLinkBox();
     initDiff();
     initSearchHits(article);
     initChanges(article);
@@ -789,6 +790,26 @@
       initReviewBar();
       return !was && fresh[0].classList.contains("state-refining");
     } catch { return false; }
+  }
+
+  // ----------------------------------------------------- published link
+  // Record, change or remove where this note is published; the page reloads so
+  // the button and the "out of date" marker come from the server.
+  function initLinkBox() {
+    const box = $(".linkbox");
+    if (!box) return;
+    const api = `/api/notes/${encodeURI(box.dataset.path)}/link`;
+    const send = async (method, body) => {
+      try {
+        const r = await fetch(api, { method, body: body && JSON.stringify(body), headers: body ? { "Content-Type": "application/json" } : {} });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+        location.reload();
+      } catch (err) { toast(err.message || String(err), true); }
+    };
+    $(".linkform", box).onsubmit = (e) => { e.preventDefault(); send("PUT", { url: e.currentTarget.url.value.trim() }); };
+    $("[data-link=refresh]", box)?.addEventListener("click", () => send("PUT", {}));
+    $("[data-link=clear]", box)?.addEventListener("click", () => { if (confirm("Remove the link to the published copy?")) send("DELETE"); });
+    document.addEventListener("mousedown", (e) => { if (box.open && !box.contains(e.target)) box.open = false; });
   }
 
   // ---------------------------------------------------------- review bar
