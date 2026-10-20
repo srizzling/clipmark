@@ -182,7 +182,7 @@ export function dashboardPage({ siteTitle, notes }) {
 }
 
 // The bar at the top of a note: where it stands, and the choices from there.
-function reviewBar(note, review) {
+function reviewBar(note, review, changes = null) {
   if (!review) return "";
   const enc = encodeURI(note.path);
   const btn = (action, label, title, cls = "") => `<button type="button" data-action="${action}"${cls ? ` class="${cls}"` : ""} title="${h(title)}">${label}</button>`;
@@ -201,6 +201,7 @@ function reviewBar(note, review) {
   return `<div class="reviewbar state-${review.state}" id="reviewbar" data-path="${h(note.path)}" data-nocopy>
   <span class="badge">${STATE_LABEL[review.state]}</span>
   <span class="muted">${note_}</span>
+  ${changes ? `<label class="muted" title="Shade the parts of this page that are new or rewritten since you last reviewed it. Text that was removed is only in the diff."><input type="checkbox" id="show-changes" checked> Highlight what changed${changes.blocks.length ? ` (${changes.blocks.length})` : ""}${changes.removed ? `, ${changes.removed} removed` : ""}</label>` : ""}
   <span class="spacer"></span>
   ${choices}
 </div>`;
@@ -251,7 +252,7 @@ ${reviewBar(note, review)}
   return layout({ title: `Diff: ${note.title}`, siteTitle, body, bodyClass: "note diffpage" });
 }
 
-export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review, hits = [] }) {
+export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review, changes = null, hits = [] }) {
   const path = note.path;
   const enc = encodeURI(path);
   const current = !viewing;
@@ -296,9 +297,9 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
   </div>
 </div>
 ${banner}
-${current ? reviewBar(note, review) : ""}
+${current ? reviewBar(note, review, changes) : ""}
 <main>
-  <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}"${hits.length ? ` data-hits="${h(JSON.stringify(hits))}"` : ""}>
+  <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}"${hits.length ? ` data-hits="${h(JSON.stringify(hits))}"` : ""}${changes?.blocks.length ? ` data-changes="${h(JSON.stringify({ total: changes.total, blocks: changes.blocks }))}"` : ""}>
 ${html}
   </article>
 </main>

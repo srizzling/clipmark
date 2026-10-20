@@ -203,3 +203,6 @@ mark { background: #fff2a8; color: inherit; border-radius: 2px; }
   ::highlight(clipmark-search) { background: #1d4a73; }
 }
 @media (max-width: 700px) { header.site { flex-wrap: wrap; gap: 0.4rem; } header.site form.search { order: 3; flex-basis: 100%; max-width: none; margin: 0; } }
+::highlight(clipmark-changed) { background: rgba(26, 127, 55, 0.2); color: inherit; }
+@media (prefers-color-scheme: dark) { ::highlight(clipmark-changed) { background: rgba(46, 160, 67, 0.35); } }
+.reviewbar label { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer; }

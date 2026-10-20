@@ -320,3 +320,31 @@ test("search ignores deleted notes and notices edits", async () => {
   await fetch(`${base}/api/notes/search/temp.md`, { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } });
   assert.equal(await find("quuxify"), 0);
 });
+
+test("monitor probe notes stay out of the review queue and search", async () => {
+  assert.equal((await put("_probe/roundtrip.md", "# probe\n\nfixture zzprobeword\n")).status < 300, true);
+  assert.equal((await put("_probe/roundtrip.md", "# probe\n\nfixture zzprobeword two\n")).status, 200);
+  const queue = await (await fetch(`${base}/api/review`)).json();
+  assert.equal(queue.notes.some((n) => n.path.startsWith("_probe/")), false);
+  assert.match(await (await fetch(`${base}/all`)).text(), /_probe\/roundtrip\.md/, "still in the archive");
+  assert.equal((await (await fetch(`${base}/api/search?q=zzprobeword`)).json()).total, 0);
+  const page = await (await fetch(`${base}/n/_probe/roundtrip.md`)).text();
+  assert.doesNotMatch(page, /id="reviewbar"/);
+  assert.match(page, /<article id="note"/, "the page itself still renders");
+});
+
+test("a note published again after review lists its changed blocks for the page to mark", async () => {
+  await put("marks/m.md", "# M\n\nkeep\n\nold text here\n");
+  await fetch(`${base}/api/notes/marks/m.md/review`, { method: "PATCH", body: JSON.stringify({ action: "reviewed" }) });
+  const unchanged = await (await fetch(`${base}/n/marks/m.md`)).text();
+  assert.doesNotMatch(unchanged, /data-changes/);
+
+  await put("marks/m.md", "# M\n\nkeep\n\nnew text here\n\nbrand new block\n");
+  const page = await (await fetch(`${base}/n/marks/m.md`)).text();
+  const m = /data-changes="([^"]*)"/.exec(page);
+  assert.ok(m, "changes are listed");
+  assert.deepEqual(JSON.parse(m[1].replaceAll("&quot;", '"')), { total: 4, blocks: [2, 3] });
+  assert.match(page, /id="show-changes"/);
+  const old = await (await fetch(`${base}/n/marks/m.md?v=${(await (await fetch(`${base}/api/notes/marks/m.md/versions`)).json()).versions[1].id}`)).text();
+  assert.doesNotMatch(old, /data-changes/, "an old version has nothing to mark");
+});

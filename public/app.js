@@ -720,6 +720,7 @@
     initReviewBar();
     initDiff();
     initSearchHits(article);
+    initChanges(article);
     initReview(article);
   }
 
@@ -747,6 +748,28 @@
     if (!ranges.length) return;
     CSS.highlights.set("clipmark-search", new Highlight(...ranges));
     ranges[0].startContainer.parentElement.scrollIntoView({ block: "center" });
+  }
+
+  // ------------------------------------------------------- changed blocks
+  // The page is rendered from the same Markdown the server split into blocks,
+  // so block N of the diff is the Nth top-level element here. Painted with the
+  // highlight overlay, so the article's DOM is untouched. If the counts do not
+  // line up (raw HTML, footnotes), nothing is painted rather than the wrong thing.
+  function initChanges(article) {
+    let info = null;
+    try { info = JSON.parse(article.dataset.changes || "null"); } catch { return; }
+    if (!info || !(typeof Highlight === "function" && window.CSS && CSS.highlights)) return;
+    const kids = Array.from(article.children);
+    if (kids.length !== info.total) return;
+    const box = $("#show-changes");
+    const ranges = info.blocks.map((i) => { const r = document.createRange(); r.selectNodeContents(kids[i]); return r; });
+    const apply = () => {
+      if (!box || box.checked) CSS.highlights.set("clipmark-changed", new Highlight(...ranges));
+      else CSS.highlights.delete("clipmark-changed");
+      if (box) localStorage.setItem("clipmark.showChanges", box.checked ? "1" : "0");
+    };
+    if (box) { box.checked = localStorage.getItem("clipmark.showChanges") !== "0"; box.onchange = apply; }
+    apply();
   }
 
   // ---------------------------------------------------------- review bar

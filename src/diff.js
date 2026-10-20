@@ -74,20 +74,24 @@ function related(a, b) {
 
 // Rows for the diff view. kind is "same", "changed" (a block rewritten in
 // place), "removed" or "added". `old` and `new` are rendered HTML, or null.
-export function diffNotes(oldMarkdown, newMarkdown) {
+// Each row also says which block of the new note it is (`at`), so a caller can
+// find it on a page rendered from the same Markdown. `html: false` skips
+// rendering when only the shape of the change is wanted.
+export function diffNotes(oldMarkdown, newMarkdown, { html = true } = {}) {
   const a = blocksOf(oldMarkdown ?? ""), b = blocksOf(newMarkdown ?? "");
   const rows = [];
+  const show = html ? render : () => null;
   let dels = [], adds = [];
   // Between two unchanged blocks, pair each removed block with the next added
   // block it resembles; whatever is left over is a plain removal or addition.
   const flush = () => {
     let next = 0;
-    const added = (j) => rows.push({ kind: "added", old: null, new: render(b[j]) });
+    const added = (j) => rows.push({ kind: "added", old: null, new: show(b[j]), at: j });
     for (const i of dels) {
       const k = adds.findIndex((j, at) => at >= next && related(a[i], b[j]));
-      if (k < 0) { rows.push({ kind: "removed", old: render(a[i]), new: null }); continue; }
+      if (k < 0) { rows.push({ kind: "removed", old: show(a[i]), new: null, at: null }); continue; }
       for (; next < k; next++) added(adds[next]);
-      rows.push({ kind: "changed", old: render(a[i]), new: render(b[adds[k]]) });
+      rows.push({ kind: "changed", old: show(a[i]), new: show(b[adds[k]]), at: adds[k] });
       next = k + 1;
     }
     for (; next < adds.length; next++) added(adds[next]);
@@ -98,11 +102,11 @@ export function diffNotes(oldMarkdown, newMarkdown) {
     else if (kind === "add") adds.push(j);
     else {
       flush();
-      const html = render(b[j]);
-      rows.push({ kind: "same", old: html, new: html });
+      const rendered = show(b[j]);
+      rows.push({ kind: "same", old: rendered, new: rendered, at: j });
     }
   }
   flush();
   const count = (k) => rows.filter((r) => r.kind === k).length;
-  return { rows, stats: { added: count("added"), removed: count("removed"), changed: count("changed"), same: count("same") } };
+  return { rows, blocks: b.length, stats: { added: count("added"), removed: count("removed"), changed: count("changed"), same: count("same") } };
 }

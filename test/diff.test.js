@@ -55,3 +55,11 @@ test("unrelated blocks are a removal and an addition, not an edit", () => {
   const reworded = diffNotes("Old paragraph about caching layers.\n", "New paragraph about caching layers, trimmed.\n");
   assert.deepEqual(reworded.rows.map((r) => r.kind), ["changed"]);
 });
+
+test("rows say which block of the new note they are, and html can be skipped", () => {
+  const { rows, blocks } = diffNotes("# A\n\none\n\ntwo\n", "# A\n\none\n\nTWO changed\n\nthree\n", { html: false });
+  assert.equal(blocks, 4);
+  assert.deepEqual(rows.map((r) => [r.kind, r.at]), [["same", 0], ["same", 1], ["changed", 2], ["added", 3]]);
+  assert.equal(rows[2].new, null);
+  assert.equal(diffNotes("x\n\ny\n", "y\n", { html: false }).rows[0].at, null, "a removed block has no place in the new note");
+});

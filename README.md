@@ -55,7 +55,8 @@ Publishing is one HTTP request, every change is kept, and there is no database.
   note and choose **Keep refining** or **Settle**; opening alone changes
   nothing. A new publish drops a reviewed or settled note back into the queue
   marked "changed since you read it", with a **diff** against the version you
-  reviewed, as rendered blocks, unified or side by side. You can comment on the
+  reviewed, as rendered blocks, unified or side by side. The note page itself
+  shades what is new or rewritten, so you can read it whole. You can comment on the
   new side of the diff like on any page. State is one file, `.review.json`, in
   the notes directory. `GET /api/review` (or `clipmark queue`) gives agents
   the same view. The first time, **Settle everything older than today** clears

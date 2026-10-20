@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import { timingSafeEqual } from "node:crypto";
 
 import { render, titleOf } from "./render.js";
-import { Store, BadPath, BadSlug, BadComment, BadReview, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
+import { Store, isSystem, BadPath, BadSlug, BadComment, BadReview, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
 import { digest, slopDigest } from "./comments.js";
 import { indexPage, dashboardPage, searchPage, diffPage, notePage, editorPage, errorPage } from "./html.js";
 import { diffNotes } from "./diff.js";
@@ -82,10 +82,23 @@ export function createApp(opts = {}) {
     const note = v ? await store.readVersion(rel, v) : await store.read(rel);
     const versions = await store.versions(rel);
     const html = render(note.markdown);
+    const review = v || isSystem(rel) ? null : store.describeReview(rel, note.markdown);
+    // What changed since the reviewer last looked, as block positions, so the
+    // page can mark them without anything being added to the article.
+    let changes = null;
+    if (review?.changed && review.reviewedVersion) {
+      try {
+        const before = await store.readVersion(rel, review.reviewedVersion);
+        const { rows, blocks } = diffNotes(before.markdown, note.markdown, { html: false });
+        const at = rows.filter((r) => r.kind === "added" || r.kind === "changed").map((r) => r.at);
+        const removed = rows.filter((r) => r.kind === "removed").length;
+        if (at.length || removed) changes = { total: blocks, blocks: at, removed };
+      } catch { /* the reviewed version is gone: just no markers */ }
+    }
     return send(res, 200, notePage({
       siteTitle, note: { ...note, title: titleOf(note.markdown, rel) }, html, versions, viewing: v,
       publicUrl: publicUrl(req), shortUrl: shortUrl(req, note.slug),
-      review: v ? null : store.describeReview(rel, note.markdown),
+      review, changes,
       hits: v || !q ? [] : await store.searchWords(rel, q),
     }));
   }

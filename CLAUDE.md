@@ -59,7 +59,12 @@ Changing any of these is a breaking change and needs coordination downstream.
   nothing may write review state on publish. `/` is the queue and `/all` the
   archive; `all` and `diff` are reserved slugs. The diff compares rendered
   blocks and old cells are `data-nocopy` so comments only anchor to the new
-  side. Keep `bin/clipmark` and `public/llms.txt` in step.
+  side. Notes under `_probe/` (monitor fixtures, republished constantly) are
+  left out of the queue and search by `isSystem`, but stay in `/all`. On the
+  note page, blocks changed since the last review are painted with a CSS
+  highlight by position (`data-changes`); the client paints nothing unless its
+  top-level element count matches, so keep that overlay-only too. Keep
+  `bin/clipmark` and `public/llms.txt` in step.
 - **Search**: `GET /api/search?q=&limit=` needs no token and returns
   `{ query, total, results: [{ path, slug, title, state, changed, openComments,
   score, snippet, highlights, url, pathUrl }] }`; `/search` is the page.

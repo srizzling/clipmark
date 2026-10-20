@@ -76,6 +76,10 @@ export function safePath(p) {
   return parts.join("/");
 }
 
+// Monitors publish fixtures here all the time. They are not for a person to
+// review, so they stay out of the review queue and out of search.
+export const isSystem = (rel) => safePath(rel).startsWith("_probe/");
+
 const hashOf = (markdown) => createHash("sha256").update(markdown).digest("hex").slice(0, 16);
 
 // Where a note is in review is worked out, not stored: the record only says
@@ -451,6 +455,7 @@ export class Store {
   async listReview() {
     const out = [];
     for (const n of await this.list()) {
+      if (isSystem(n.path)) continue;
       const { markdown } = await this.read(n.path);
       const r = this.describeReview(n.path, markdown);
       const [versions, { comments }] = await Promise.all([this.versions(n.path), this.loadComments(n.path)]);
@@ -470,7 +475,7 @@ export class Store {
     if (Number.isNaN(cutoff.getTime())) throw new BadReview("before must be a date");
     let settled = 0, kept = 0;
     for (const n of await this.list()) {
-      if (this.reviews.has(n.path)) continue;
+      if (this.reviews.has(n.path) || isSystem(n.path)) continue;
       if (new Date(n.mtime) >= cutoff) { kept++; continue; }
       const { markdown } = await this.read(n.path);
       this.reviews.set(n.path, {
@@ -500,7 +505,7 @@ export class Store {
   async search(query, { limit = 25 } = {}) {
     const q = parseQuery(query);
     if (!q.terms.length && !q.phrases.length) return { query: String(query ?? ""), total: 0, results: [] };
-    const listed = await this.list();
+    const listed = (await this.list()).filter((n) => !isSystem(n.path));
     const live = new Set(listed.map((n) => n.path));
     for (const p of this.searchIndex.keys()) if (!live.has(p)) this.searchIndex.delete(p);
     const hits = [];

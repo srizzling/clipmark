@@ -55,6 +55,8 @@ Typical loop: publish, ask the reviewer to comment, `GET .../comments?format=md`
 
 The person reviewing your notes keeps a queue. Each note is in one state, worked out from what they last did, so publishing needs no extra step: a note they have reviewed or settled drops back to `review` as soon as its content changes. No token is needed for any of this.
 
+Notes under `_probe/` are monitoring fixtures and never appear in the queue or in search.
+
 - `review`: not reviewed yet, or published again since they last reviewed it (`changed: true`).
 - `refining`: they have read it and sent it back for more work. Check its open comments.
 - `settled`: they consider it done.
