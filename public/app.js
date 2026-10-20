@@ -697,7 +697,8 @@
       modeSel.value = localStorage.getItem("clipmark.diagramMode") || "image";
       modeSel.onchange = () => localStorage.setItem("clipmark.diagramMode", modeSel.value);
     }
-    $("#copy-rich").onclick = async (e) => {
+    const copyRichBtn = $("#copy-rich");
+    if (copyRichBtn) copyRichBtn.onclick = async (e) => {
       const b = e.currentTarget; b.disabled = true;
       try {
         const html = await exportHtml(article, modeSel?.value || "image");
@@ -706,15 +707,79 @@
       } catch (err) { toast(err.message || String(err), true); }
       b.disabled = false;
     };
-    $("#copy-link").onclick = async (e) => {
+    const copyLinkBtn = $("#copy-link");
+    if (copyLinkBtn) copyLinkBtn.onclick = async (e) => {
       if (await copyText(e.currentTarget.dataset.url)) toast("Link copied");
       else toast("Copy failed", true);
     };
-    $("#copy-md").onclick = async () => {
+    const copyMdBtn = $("#copy-md");
+    if (copyMdBtn) copyMdBtn.onclick = async () => {
       if (await copyText(source)) toast("Markdown copied");
       else toast("Copy failed", true);
     };
+    initReviewBar();
+    initDiff();
     initReview(article);
+  }
+
+  // ---------------------------------------------------------- review bar
+  // Where the note stands in the queue. The choices are plain PATCHes; the
+  // page reloads afterwards so the bar and the queue agree with the server.
+  function initReviewBar() {
+    const bar = $("#reviewbar");
+    if (!bar) return;
+    const api = `/api/notes/${encodeURI(bar.dataset.path)}/review`;
+    for (const b of $$("button[data-action]", bar)) {
+      b.onclick = async () => {
+        const open = Number($("#comment-count")?.textContent) || 0;
+        if (b.dataset.action === "settle" && open &&
+            !confirm(`${open} comment${open === 1 ? " is" : "s are"} still open. Settle anyway? They stay open.`)) return;
+        b.disabled = true;
+        try {
+          const r = await fetch(api, { method: "PATCH", body: JSON.stringify({ action: b.dataset.action }) });
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+          location.reload();
+        } catch (err) { toast(err.message || String(err), true); b.disabled = false; }
+      };
+    }
+  }
+
+  // ----------------------------------------------------------- diff page
+  // Unified or side by side is a class on the article, remembered per browser.
+  function initDiff() {
+    const article = $("#note.diff");
+    if (!article) return;
+    const set = (layout) => {
+      article.classList.toggle("split", layout === "split");
+      for (const b of $$("button[data-layout]")) b.classList.toggle("on", b.dataset.layout === layout);
+      localStorage.setItem("clipmark.diffLayout", layout);
+    };
+    set(localStorage.getItem("clipmark.diffLayout") === "split" ? "split" : "unified");
+    for (const b of $$("button[data-layout]")) b.onclick = () => set(b.dataset.layout);
+    const only = $("#changes-only");
+    if (only) {
+      only.checked = localStorage.getItem("clipmark.diffChangesOnly") === "1";
+      const apply = () => { article.classList.toggle("only-changes", only.checked); localStorage.setItem("clipmark.diffChangesOnly", only.checked ? "1" : "0"); };
+      only.onchange = apply; apply();
+    }
+  }
+
+  // ------------------------------------------------------- review dashboard
+  function initDash() {
+    const btn = $("#settle-old");
+    if (!btn) return;
+    btn.onclick = async () => {
+      // "Today" is the reviewer's today, not the server's.
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      if (!confirm("Settle every note you have never reviewed that was last changed before today? Notes changed today stay in the queue.")) return;
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/review/settle-before", { method: "POST", body: JSON.stringify({ before: midnight.toISOString() }) });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error || `HTTP ${r.status}`);
+        location.reload();
+      } catch (err) { toast(err.message || String(err), true); btn.disabled = false; }
+    };
   }
 
   // ---------------------------------------------------------- editor page
@@ -782,4 +847,5 @@
   if (document.body.classList.contains("note")) initNote();
   else if (document.body.classList.contains("edit")) initEditor();
   else if (document.body.classList.contains("index")) initIndex();
+  else if (document.body.classList.contains("dash")) initDash();
 })();

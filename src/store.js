@@ -5,7 +5,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { randomInt } from "node:crypto";
+import { randomInt, createHash } from "node:crypto";
 import { ADJECTIVES, ANIMALS, VERBS } from "./words.js";
 import { locate, paragraphAround } from "./comments.js";
 import { titleOf } from "./render.js";
@@ -13,12 +13,16 @@ import { titleOf } from "./render.js";
 const VERSIONS = ".versions";
 const COMMENTS = ".comments";
 const SLUGS = ".slugs.json";
+const REVIEWS = ".review.json";
 const VERSION_ID = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.[0-9]{3}Z$/;
 const LIMITS = { quote: 4000, body: 5000, context: 200, pattern: 60 };
 export const KINDS = ["comment", "slop"];
+// reviewed: "I have read it, it needs more work". settle: "done". reset: back to the queue.
+export const REVIEW_ACTIONS = ["reviewed", "settle", "reset"];
+export const REVIEW_STATES = ["review", "refining", "settled"];
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // First path segments the server owns; a slug may not shadow them.
-export const RESERVED = new Set(["n", "raw", "edit", "new", "export", "api", "assets", "vendor", "healthz", "llms.txt", "favicon.ico", "robots.txt"]);
+export const RESERVED = new Set(["n", "raw", "edit", "new", "export", "api", "assets", "vendor", "healthz", "all", "diff", "llms.txt", "favicon.ico", "robots.txt"]);
 
 export class BadSlug extends Error {
   constructor(msg) { super(msg); this.status = 400; }
@@ -38,6 +42,10 @@ const SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._ -]*$/;
 
 export class BadPath extends Error {
   constructor(msg) { super(msg); this.status = 400; }
+}
+
+export class BadReview extends Error {
+  constructor(msg, status = 400) { super(msg); this.status = status; }
 }
 
 export class BadComment extends Error {
@@ -67,6 +75,17 @@ export function safePath(p) {
   return parts.join("/");
 }
 
+const hashOf = (markdown) => createHash("sha256").update(markdown).digest("hex").slice(0, 16);
+
+// Where a note is in review is worked out, not stored: the record only says
+// what the reviewer last did and to which content. A new publish changes the
+// content, so the note drops back to "review" without anyone telling us.
+export function reviewStateOf(record, hash) {
+  if (!record) return { state: "review", changed: false };
+  if (record.hash !== hash) return { state: "review", changed: true };
+  return { state: record.settled ? "settled" : "refining", changed: false };
+}
+
 function stamp(d = new Date()) {
   // 2026-09-02T10-15-00.123Z : sortable, filesystem-safe, human-readable.
   return d.toISOString().replace(/:/g, "-");
@@ -80,6 +99,9 @@ export class Store {
     this.slugsFile = path.join(this.root, SLUGS);
     this.saving = Promise.resolve();
     this.commenting = Promise.resolve();
+    this.reviews = new Map();    // path -> { hash, version, reviewedAt, settled }
+    this.reviewsFile = path.join(this.root, REVIEWS);
+    this.reviewing = Promise.resolve();
   }
 
   async init() {
@@ -88,6 +110,9 @@ export class Store {
       const raw = JSON.parse(await fs.readFile(this.slugsFile, "utf8"));
       for (const [slug, p] of Object.entries(raw)) { this.slugs.set(slug, p); this.bySlugPath.set(p, slug); }
     } catch { /* first run */ }
+    try {
+      for (const [p, rec] of Object.entries(JSON.parse(await fs.readFile(this.reviewsFile, "utf8")))) this.reviews.set(p, rec);
+    } catch { /* nothing reviewed yet */ }
   }
 
   // Slugs live in one small JSON file. Writes go through a chain so two
@@ -376,6 +401,84 @@ export class Store {
     await walk(base, "");
     out.sort((a, b) => (a.created < b.created ? 1 : -1));
     return out;
+  }
+
+  // Review state. One small JSON file, written like the slugs: through a chain
+  // so two clicks cannot interleave, and by rename so a crash leaves the old
+  // file. The record holds the hash of the content that was reviewed and the
+  // version it was, so "what changed since I read it" can be shown as a diff.
+  saveReviews() {
+    this.reviewing = this.reviewing.then(async () => {
+      const obj = Object.fromEntries([...this.reviews.entries()].sort());
+      const tmp = `${this.reviewsFile}.${process.pid}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(obj, null, 2) + "\n");
+      await fs.rename(tmp, this.reviewsFile);
+    });
+    return this.reviewing;
+  }
+
+  describeReview(rel, markdown) {
+    const rec = this.reviews.get(safePath(rel)) ?? null;
+    const { state, changed } = reviewStateOf(rec, hashOf(markdown));
+    return { state, changed, reviewedAt: rec?.reviewedAt ?? null, reviewedVersion: rec?.version ?? null };
+  }
+
+  async reviewOf(rel) {
+    const { markdown } = await this.read(rel);
+    return { path: safePath(rel), ...this.describeReview(rel, markdown) };
+  }
+
+  // reviewed: read it, still refining. settle: done. reset: back to the queue.
+  async setReview(rel, action) {
+    if (!REVIEW_ACTIONS.includes(action)) throw new BadReview(`action must be one of ${REVIEW_ACTIONS.join(", ")}`);
+    const p = safePath(rel);
+    const { markdown } = await this.read(p);
+    if (action === "reset") this.reviews.delete(p);
+    else {
+      this.reviews.set(p, {
+        hash: hashOf(markdown), version: (await this.versions(p))[0]?.id ?? null,
+        reviewedAt: new Date().toISOString(), settled: action === "settle",
+      });
+    }
+    await this.saveReviews();
+    return this.reviewOf(p);
+  }
+
+  // Every note with where it stands, newest first. `openComments` counts open
+  // comments and slop flags, so the dashboard can say what is still unaddressed.
+  async listReview() {
+    const out = [];
+    for (const n of await this.list()) {
+      const { markdown } = await this.read(n.path);
+      const r = this.describeReview(n.path, markdown);
+      const [versions, { comments }] = await Promise.all([this.versions(n.path), this.loadComments(n.path)]);
+      out.push({
+        ...n, title: titleOf(markdown, n.path), ...r, versions: versions.length,
+        openComments: comments.filter((c) => c.status === "open").length,
+      });
+    }
+    return out;
+  }
+
+  // One-off catch-up for notes that existed before review did: every note that
+  // has never been reviewed and was last changed before `before` is settled.
+  // Anything newer stays in the queue.
+  async settleBefore(before) {
+    const cutoff = new Date(before);
+    if (Number.isNaN(cutoff.getTime())) throw new BadReview("before must be a date");
+    let settled = 0, kept = 0;
+    for (const n of await this.list()) {
+      if (this.reviews.has(n.path)) continue;
+      if (new Date(n.mtime) >= cutoff) { kept++; continue; }
+      const { markdown } = await this.read(n.path);
+      this.reviews.set(n.path, {
+        hash: hashOf(markdown), version: (await this.versions(n.path))[0]?.id ?? null,
+        reviewedAt: new Date().toISOString(), settled: true,
+      });
+      settled++;
+    }
+    if (settled) await this.saveReviews();
+    return { settled, kept };
   }
 
   // Any non-.md file under the notes dir (images referenced from notes).

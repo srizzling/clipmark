@@ -9,9 +9,10 @@ import { createRequire } from "node:module";
 import { timingSafeEqual } from "node:crypto";
 
 import { render, titleOf } from "./render.js";
-import { Store, BadPath, BadSlug, BadComment, SLUG_RE, RESERVED } from "./store.js";
+import { Store, BadPath, BadSlug, BadComment, BadReview, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
 import { digest, slopDigest } from "./comments.js";
-import { indexPage, notePage, editorPage, errorPage } from "./html.js";
+import { indexPage, dashboardPage, diffPage, notePage, editorPage, errorPage } from "./html.js";
+import { diffNotes } from "./diff.js";
 import { zip } from "./zip.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -84,6 +85,7 @@ export function createApp(opts = {}) {
     return send(res, 200, notePage({
       siteTitle, note: { ...note, title: titleOf(note.markdown, rel) }, html, versions, viewing: v,
       publicUrl: publicUrl(req), shortUrl: shortUrl(req, note.slug),
+      review: v ? null : store.describeReview(rel, note.markdown),
     }));
   }
 
@@ -111,7 +113,12 @@ export function createApp(opts = {}) {
         return json(res, ok ? 200 : 503, { ok, version: pkg.version, notes: notes.length, writable, renders, notesDir: store.root });
       }
 
+      // The review queue is the home page; every note is under /all.
       if (p === "/" && req.method === "GET") {
+        return send(res, 200, dashboardPage({ siteTitle, notes: await store.listReview() }));
+      }
+
+      if (p === "/all" && req.method === "GET") {
         const list = await store.list();
         const notes = [];
         for (const n of list) {
@@ -178,6 +185,27 @@ export function createApp(opts = {}) {
         return send(res, 200, note.markdown, "text/markdown; charset=utf-8");
       }
 
+      // What changed between two versions, as rendered blocks. By default the
+      // version you last reviewed against the current one, else the one before.
+      if (p.startsWith("/diff/") && req.method === "GET") {
+        const rel = p.slice(6);
+        if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`);
+        const versions = await store.versions(rel);
+        const toId = url.searchParams.get("to") || null;
+        const to = toId ? await store.readVersion(rel, toId) : await store.read(rel);
+        const toVersion = toId ?? versions[0]?.id ?? null;
+        const review = await store.reviewOf(rel);
+        const wanted = url.searchParams.get("from");
+        const earlier = versions[versions.findIndex((v) => v.id === toVersion) + 1]?.id;
+        const fromId = wanted || [review.reviewedVersion, earlier].find((id) => id && id !== toVersion && versions.some((v) => v.id === id)) || null;
+        const from = fromId ? await store.readVersion(rel, fromId) : null;
+        const { rows, stats } = diffNotes(from?.markdown ?? "", to.markdown);
+        return send(res, 200, diffPage({
+          siteTitle, note: { ...to, title: titleOf(to.markdown, rel) }, rows, stats, versions,
+          from: from && { id: fromId }, to: { id: toVersion, current: !toId }, review: toId ? null : review,
+        }));
+      }
+
       if (p === "/new" && req.method === "GET") {
         return send(res, 200, editorPage({ siteTitle, path: "", markdown: "", hasToken: !!token }));
       }
@@ -200,6 +228,34 @@ export function createApp(opts = {}) {
           notes.push(withUrls(req, { ...n, title: titleOf(markdown, n.path) }));
         }
         return json(res, 200, { notes });
+      }
+
+      // Review queue. Open to anyone who can reach the server, like comments:
+      // it is the reviewer's own bookkeeping, not a publish.
+      if (p === "/api/review" && req.method === "GET") {
+        const state = url.searchParams.get("state") || "all";
+        if (state !== "all" && !REVIEW_STATES.includes(state)) throw new BadReview(`state must be "all" or one of ${REVIEW_STATES.join(", ")}`);
+        const all = await store.listReview();
+        const counts = { review: 0, refining: 0, settled: 0 };
+        for (const n of all) counts[n.state]++;
+        return json(res, 200, { counts, notes: all.filter((n) => state === "all" || n.state === state).map((n) => withUrls(req, n)) });
+      }
+      if (p === "/api/review/settle-before" && req.method === "POST") {
+        let body;
+        try { body = JSON.parse(await readBody(req)); } catch { throw new BadReview("body must be JSON"); }
+        return json(res, 200, await store.settleBefore(body?.before));
+      }
+      const rv = p.match(/^\/api\/notes\/(.+\.md)\/review$/);
+      if (rv) {
+        const rel = rv[1];
+        if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`, true);
+        if (req.method === "GET") return json(res, 200, await store.reviewOf(rel));
+        if (req.method === "PATCH" || req.method === "POST") {
+          let body;
+          try { body = JSON.parse(await readBody(req)); } catch { throw new BadReview("body must be JSON"); }
+          return json(res, 200, await store.setReview(rel, body?.action));
+        }
+        return fail(res, 405, "method not allowed", true);
       }
 
       // Every slop flag across all notes, to learn from. ?status= as for comments.
@@ -272,7 +328,7 @@ export function createApp(opts = {}) {
 
       return fail(res, 404, "not found", wantsJson);
     } catch (err) {
-      if (err instanceof BadPath || err instanceof BadSlug || err instanceof BadComment || err.status) return fail(res, err.status || 400, err.message, wantsJson);
+      if (err instanceof BadPath || err instanceof BadSlug || err instanceof BadComment || err instanceof BadReview || err.status) return fail(res, err.status || 400, err.message, wantsJson);
       if (err.code === "ENOENT") return fail(res, 404, "not found", wantsJson);
       console.error(err);
       return fail(res, 500, "internal error", wantsJson);

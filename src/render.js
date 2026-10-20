@@ -133,6 +133,12 @@ export function createRenderer() {
 
 const shared = createRenderer();
 
+// Block tokens for a document, for callers that care where each block sits in
+// the source (the diff view splits a note into its top-level blocks).
+export function parse(markdown) {
+  return shared.parse(markdown, {});
+}
+
 export function render(markdown) {
   return shared.render(markdown);
 }

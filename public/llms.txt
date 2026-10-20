@@ -44,6 +44,21 @@ People review a note in the browser by selecting text and commenting on it. You 
 
 Typical loop: publish, ask the reviewer to comment, `GET .../comments?format=md`, edit the Markdown, `PUT` the new version, `PATCH` each comment resolved.
 
+## Review queue
+
+The person reviewing your notes keeps a queue. Each note is in one state, worked out from what they last did, so publishing needs no extra step: a note they have reviewed or settled drops back to `review` as soon as its content changes. No token is needed for any of this.
+
+- `review`: not reviewed yet, or published again since they last reviewed it (`changed: true`).
+- `refining`: they have read it and sent it back for more work. Check its open comments.
+- `settled`: they consider it done.
+
+- `GET {{PUBLIC_URL}}/api/review` returns `{ counts: { review, refining, settled }, notes: [{ path, slug, title, state, changed, reviewedAt, reviewedVersion, versions, openComments, mtime, url, pathUrl }] }`. `?state=review|refining|settled` filters. This answers "what is still waiting on the reviewer, and what is waiting on me".
+- `GET {{PUBLIC_URL}}/api/notes/<path>/review` returns one note's `{ path, state, changed, reviewedAt, reviewedVersion }`. `reviewedVersion` is the version they last reviewed, so `GET .../api/notes/<path>?v=<reviewedVersion>` is what they saw before your change.
+- `PATCH {{PUBLIC_URL}}/api/notes/<path>/review` with `{ "action": "reviewed" | "settle" | "reset" }` records a decision. Settling is the reviewer's call: do not settle a note yourself.
+- `GET {{PUBLIC_URL}}/diff/<path>` is the page that shows what changed between two versions (`?from=<id>&to=<id>`); by default the version last reviewed against the current one.
+
+Typical loop: publish, the note appears under `review`; the reviewer comments and chooses Keep refining; read `GET .../comments?format=md`, edit, `PUT`; it is back under `review` with `changed: true` and the reviewer looks at the diff.
+
 ## Markdown that renders well
 
 GitHub-flavoured Markdown: headings, tables, fenced code with a language, task lists, strikethrough, footnotes, autolinks. Fenced ```` ```mermaid ```` blocks render as diagrams. `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]` and `> [!CAUTION]` blockquotes render as panels. Start a note with a single `# Title` line; it becomes the page title and the title in listings.

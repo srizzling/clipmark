@@ -44,6 +44,16 @@ Publishing is one HTTP request, every change is kept, and there is no database.
   (or `clipmark slop`) also lists every flag across all notes, with the
   original text, its paragraph and the reviewer's reason kept after the
   rewrite, so the examples can be mined for what to stop writing.
+- **Review queue.** The home page lists what is still **to review**, what
+  you have read and sent back (**refining**) and what is **settled**. Open a
+  note and choose **Keep refining** or **Settle**; opening alone changes
+  nothing. A new publish drops a reviewed or settled note back into the queue
+  marked "changed since you read it", with a **diff** against the version you
+  reviewed, as rendered blocks, unified or side by side. You can comment on the
+  new side of the diff like on any page. State is one file, `.review.json`, in
+  the notes directory. `GET /api/review` (or `clipmark queue`) gives agents
+  the same view. The first time, **Settle everything older than today** clears
+  notes that existed before review did and leaves today's in the queue.
 - **Publish API** with an optional bearer token, plus a tiny `curl` wrapper.
 - **No build step, no database, no external assets.** Node and two Markdown
   libraries; Mermaid is served from the container.

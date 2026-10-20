@@ -18,7 +18,8 @@ ${head}
 <header class="site">
   <a class="brand" href="/">${h(siteTitle)}</a>
   <nav>
-    <a href="/">Notes</a>
+    <a href="/">Review</a>
+    <a href="/all">All notes</a>
     <a href="/new">New</a>
     <a href="/api/notes">API</a>
   </nav>
@@ -55,7 +56,7 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
   // select-all and the count.
   const body = `
 <main class="index">
-  <h1>Notes</h1>
+  <h1>All notes</h1>
   <form id="export-form" method="get" action="/export">
   <table class="notes">
     <thead><tr>
@@ -89,10 +90,129 @@ export function indexPage({ siteTitle, notes, publicUrl, hasToken }) {
   </details>
 </main>
 <script src="/assets/app.js"></script>`;
-  return layout({ title: "Notes", siteTitle, body, bodyClass: "index" });
+  return layout({ title: "All notes", siteTitle, body, bodyClass: "index" });
 }
 
-export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl }) {
+const STATE_LABEL = { review: "To review", refining: "Refining", settled: "Settled" };
+
+// The review queue. Three groups, derived from the notes' review state: what
+// still needs the reviewer, what they have read and sent back for more work,
+// and what is done.
+export function dashboardPage({ siteTitle, notes }) {
+  const by = (state) => notes.filter((n) => n.state === state);
+  const row = (n) => `
+      <li class="${n.changed ? "changed" : ""}">
+        <div class="main">
+          <a class="title" href="/${h(n.slug)}">${h(n.title)}</a>
+          ${n.changed ? `<a class="pill changed" href="/diff/${encodeURI(n.path)}" title="This note was published again after you reviewed it. See what changed.">changed since you read it</a>` : ""}
+          ${n.openComments ? `<span class="pill open" title="Open comments and flags">${n.openComments} open comment${n.openComments === 1 ? "" : "s"}</span>` : ""}
+          <div class="muted mono">${h(n.path)}</div>
+        </div>
+        <div class="meta muted">
+          ${n.state === "review" ? `updated ${when(n.mtime)}` : `reviewed ${when(n.reviewedAt)}`}
+          ${n.versions > 1 ? ` · <a href="/diff/${encodeURI(n.path)}">diff</a>` : ""}
+        </div>
+      </li>`;
+  const section = (state, empty) => {
+    const list = by(state);
+    return list.length ? `<ul class="queue">${list.map(row).join("")}</ul>` : `<p class="muted empty">${empty}</p>`;
+  };
+  const settled = by("settled");
+  const body = `
+<main class="dash">
+  <h1>Review</h1>
+  <section>
+    <h2>To review <span class="pill">${by("review").length}</span></h2>
+    ${section("review", "Nothing waiting on you.")}
+    ${by("review").length ? `<div class="catchup">
+      <button id="settle-old" type="button" title="Settle every note that has never been reviewed and was last changed before today. Notes changed today stay in the queue.">Settle everything older than today</button>
+      <span class="muted">One-off catch-up for notes that existed before review did.</span>
+    </div>` : ""}
+  </section>
+  <section>
+    <h2>Refining <span class="pill">${by("refining").length}</span></h2>
+    ${section("refining", "Nothing sent back for more work.")}
+  </section>
+  <details class="settled"${settled.length && !by("review").length && !by("refining").length ? " open" : ""}>
+    <summary>Settled <span class="pill">${settled.length}</span></summary>
+    ${section("settled", "Nothing settled yet.")}
+  </details>
+</main>
+<script src="/assets/app.js"></script>`;
+  return layout({ title: "Review", siteTitle, body, bodyClass: "dash" });
+}
+
+// The bar at the top of a note: where it stands, and the choices from there.
+function reviewBar(note, review) {
+  if (!review) return "";
+  const enc = encodeURI(note.path);
+  const btn = (action, label, title, cls = "") => `<button type="button" data-action="${action}"${cls ? ` class="${cls}"` : ""} title="${h(title)}">${label}</button>`;
+  const choices = {
+    review: btn("reviewed", "Keep refining", "I have read it and it needs more work. It leaves the queue until it is published again.", "primary") +
+            btn("settle", "Settle", "I have read it and it is done."),
+    refining: btn("settle", "Settle", "It is done.", "primary") + btn("reset", "Back to review", "Put it back in the To review queue."),
+    settled: btn("reset", "Reopen", "Put it back in the To review queue."),
+  }[review.state];
+  const at = review.reviewedAt ? when(review.reviewedAt) : "";
+  const note_ = {
+    review: review.changed ? `Published again since you reviewed it. <a href="/diff/${enc}">See what changed</a>.` : "You have not reviewed this yet.",
+    refining: `Reviewed ${at}. Waiting on edits. <a href="/diff/${enc}">Diff</a>.`,
+    settled: `Settled ${at}. A new publish puts it back in the queue.`,
+  }[review.state];
+  return `<div class="reviewbar state-${review.state}" id="reviewbar" data-path="${h(note.path)}" data-nocopy>
+  <span class="badge">${STATE_LABEL[review.state]}</span>
+  <span class="muted">${note_}</span>
+  <span class="spacer"></span>
+  ${choices}
+</div>`;
+}
+
+export function diffPage({ siteTitle, note, rows, stats, versions, from, to, review }) {
+  const enc = encodeURI(note.path);
+  const opt = (v, selected) => `<option value="${h(v.id)}"${selected ? " selected" : ""}>v${v.n} · ${h(v.id.replace("T", " ").slice(0, 16).replace(/-(\d\d)$/, ":$1"))}</option>`;
+  const toId = to.id;
+  const summary = [
+    stats.changed && `${stats.changed} changed`, stats.added && `${stats.added} added`, stats.removed && `${stats.removed} removed`,
+  ].filter(Boolean).join(", ") || "no differences";
+  const cells = rows.map((r) => `
+    <div class="drow ${r.kind}">
+      <div class="old" data-nocopy>${r.old ?? ""}</div>
+      <div class="new">${r.new ?? ""}</div>
+    </div>`).join("");
+  const body = `
+<div class="toolbar" data-nocopy>
+  <div class="left">
+    <a class="back" href="/${h(note.slug)}" title="Back to the note">←</a>
+    <span class="title">${h(note.title)}</span>
+    <span class="muted">${h(summary)}</span>
+  </div>
+  <div class="right">
+    <form class="compare" method="get" action="/diff/${enc}">
+      <label>From <select name="from">${versions.map((v) => opt(v, v.id === from?.id)).join("")}</select></label>
+      <label>To <select name="to">${versions.map((v) => opt(v, v.id === toId)).join("")}</select></label>
+      <button type="submit">Compare</button>
+    </form>
+    <span class="seg" role="group" aria-label="Layout">
+      <button type="button" data-layout="unified" title="Old above new">Unified</button>
+      <button type="button" data-layout="split" title="Old on the left, new on the right">Side by side</button>
+    </span>
+    <label class="muted"><input type="checkbox" id="changes-only"> Changes only</label>
+    <button id="toggle-comments" title="Review comments. Select text on the new side to add one.">Comments <span id="comment-count" class="pill" hidden></span></button>
+  </div>
+</div>
+${reviewBar(note, review)}
+<main class="diffmain">
+  ${from ? "" : `<p class="muted">There is no earlier version to compare with, so everything shows as added.</p>`}
+  <div class="legend muted" data-nocopy>Comments attach to the new side. Removed text is on the left (or struck through in unified).</div>
+  <article id="note" class="markdown-body diff" data-path="${h(note.path)}" data-version="${h(to.current ? "" : toId)}">${cells}
+  </article>
+</main>
+<script src="/vendor/mermaid.min.js"></script>
+<script src="/assets/app.js"></script>`;
+  return layout({ title: `Diff: ${note.title}`, siteTitle, body, bodyClass: "note diffpage" });
+}
+
+export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review }) {
   const path = note.path;
   const enc = encodeURI(path);
   const current = !viewing;
@@ -115,7 +235,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
   const body = `
 <div class="toolbar" data-nocopy>
   <div class="left">
-    <a class="back" href="/" title="All notes">←</a>
+    <a class="back" href="/" title="Back to the review queue">←</a>
     <span class="title">${h(note.title)}</span>
     <button id="copy-link" class="link mono" data-url="${h(shortUrl)}" title="Copy this note's short link (${h(path)})">/${h(note.slug)}</button>
   </div>
@@ -130,12 +250,14 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     <button id="copy-rich" class="primary" title="Copy the rendered note as rich text, ready to paste into an editor">Copy for pasting</button>
     <button id="copy-md" title="Copy the Markdown source">Copy Markdown</button>
     <button id="toggle-comments" title="Review comments. Select text in the note to add one.">Comments <span id="comment-count" class="pill" hidden></span></button>
+    ${current && versions.length > 1 ? `<a class="btn" href="/diff/${enc}" title="Compare with an earlier version">Diff</a>` : ""}
     ${current ? `<a class="btn" href="/edit/${enc}">Edit</a>` : ""}
     <a class="btn" href="/raw/${enc}${viewing ? `?v=${encodeURIComponent(viewing)}` : ""}" title="${h(path)}">Raw</a>
     ${history}
   </div>
 </div>
 ${banner}
+${current ? reviewBar(note, review) : ""}
 <main>
   <article id="note" class="markdown-body" data-path="${h(path)}" data-version="${h(viewing || "")}">
 ${html}

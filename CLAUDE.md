@@ -14,11 +14,11 @@ The environment is devenv via direnv (`direnv allow` on a clean checkout).
 
 ```sh
 dev            # server on http://localhost:8102 with NOTES_DIR=.notes
-npm test       # node --test, 48 tests across test/*.test.js
+npm test       # node --test, across test/*.test.js
 ```
 
 `src/render.js` is the renderer (markdown-it + GFM extras), `src/store.js` the
-notes/versions/slugs/comments store, `src/comments.js` the comment anchoring and digest, `src/server.js` the HTTP API and pages, `src/html.js`
+notes/versions/slugs/comments store, `src/comments.js` the comment anchoring and digest, `src/server.js` the HTTP API and pages, `src/diff.js` the block-level diff, `src/html.js`
 the templates, `public/app.js` the clipboard and Mermaid code in the browser.
 
 Every async helper called from a route must be `return await`ed, not returned.
@@ -52,6 +52,14 @@ Changing any of these is a breaking change and needs coordination downstream.
   Keep `bin/clipmark` and `public/llms.txt` in step. `GET /api/slop` collects
   `kind: "slop"` comments across notes and must keep returning the original
   `quote`, `context` and `feedback` after the note is rewritten; they are what skills learn from.
+- **Review queue**: `GET /api/review[?state=]`, `GET/PATCH /api/notes/<path>/review`
+  (`action`: `reviewed`, `settle`, `reset`) and `POST /api/review/settle-before`
+  need no token, like comments. State is derived (`reviewStateOf` in
+  `src/store.js`): a content change after a review means `review` again, so
+  nothing may write review state on publish. `/` is the queue and `/all` the
+  archive; `all` and `diff` are reserved slugs. The diff compares rendered
+  blocks and old cells are `data-nocopy` so comments only anchor to the new
+  side. Keep `bin/clipmark` and `public/llms.txt` in step.
 - **`version` in `/healthz` comes from `package.json`**, so the package version
   must match the release tag.
 

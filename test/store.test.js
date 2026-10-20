@@ -99,3 +99,71 @@ test("slugs: assigned once, kept across versions and delete, customisable", asyn
     assert.equal(s2.pathOf("retry-design"), "team/design.md");
   } finally { await done(); }
 });
+
+test("review state is derived: new notes queue, a publish re-queues, settle sticks to the content", async () => {
+  const { s, done } = await tmpStore();
+  try {
+    await s.write("n.md", "# one\n");
+    assert.equal((await s.reviewOf("n.md")).state, "review");
+
+    const read = await s.setReview("n.md", "reviewed");
+    assert.equal(read.state, "refining");
+    assert.ok(read.reviewedAt);
+    assert.equal(read.reviewedVersion, (await s.versions("n.md"))[0].id);
+
+    assert.equal((await s.setReview("n.md", "settle")).state, "settled");
+
+    // An agent rewrites it: back in the queue, and it says it has changed.
+    await s.write("n.md", "# two\n");
+    const again = await s.reviewOf("n.md");
+    assert.equal(again.state, "review");
+    assert.equal(again.changed, true);
+    assert.ok(again.reviewedVersion, "the reviewed version is kept for the diff");
+
+    // Restoring the reviewed content puts the state back too.
+    await s.write("n.md", "# one\n");
+    assert.equal((await s.reviewOf("n.md")).state, "settled");
+
+    assert.equal((await s.setReview("n.md", "reset")).state, "review");
+    await assert.rejects(() => s.setReview("n.md", "nope"), /action must be/);
+  } finally { await done(); }
+});
+
+test("review state survives a restart and listReview reports state and open comments", async () => {
+  const { s, dir, done } = await tmpStore();
+  try {
+    await s.write("a.md", "# A\n\nsome text here\n");
+    await s.write("b.md", "# B\n");
+    await s.setReview("a.md", "reviewed");
+    await s.addComment("a.md", { quote: "some text", body: "tighten" });
+
+    const fresh = new Store(dir);
+    await fresh.init();
+    const all = await fresh.listReview();
+    const a = all.find((n) => n.path === "a.md"), b = all.find((n) => n.path === "b.md");
+    assert.equal(a.state, "refining");
+    assert.equal(a.openComments, 1);
+    assert.equal(b.state, "review");
+    assert.equal(all.length, 2);
+  } finally { await done(); }
+});
+
+test("settleBefore settles only never-reviewed notes older than the cutoff", async () => {
+  const { s, done } = await tmpStore();
+  try {
+    await s.write("old.md", "# old\n");
+    await s.write("reviewed.md", "# r\n");
+    await s.setReview("reviewed.md", "reviewed");
+    await new Promise((r) => setTimeout(r, 20));
+    const cutoff = new Date().toISOString();
+    await new Promise((r) => setTimeout(r, 20));
+    await s.write("today.md", "# today\n");
+
+    assert.deepEqual(await s.settleBefore(cutoff), { settled: 1, kept: 1 });
+    assert.equal((await s.reviewOf("old.md")).state, "settled");
+    assert.equal((await s.reviewOf("today.md")).state, "review");
+    assert.equal((await s.reviewOf("reviewed.md")).state, "refining", "an existing review is not overridden");
+    assert.deepEqual(await s.settleBefore(cutoff), { settled: 0, kept: 1 });
+    await assert.rejects(() => s.settleBefore("not a date"), /before must be a date/);
+  } finally { await done(); }
+});

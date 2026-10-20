@@ -75,7 +75,7 @@ test("rendered page, raw, versions and JSON all agree", async () => {
 });
 
 test("index lists notes and the mermaid bundle is served", async () => {
-  const idx = await (await fetch(`${base}/`)).text();
+  const idx = await (await fetch(`${base}/all`)).text();
   assert.match(idx, /href="\/n\/a\.md"/);
   const mm = await fetch(`${base}/vendor/mermaid.min.js`);
   assert.equal(mm.status, 200);
@@ -160,7 +160,7 @@ test("export zips the selected notes, or all of them, with folders kept", async 
   assert.equal((await fetch(`${base}/export?path=..%2Fx.md`)).status, 400);
   assert.equal((await put("zip/x.md?slug=export", "x")).status, 400, "export is a reserved slug");
 
-  const idx = await (await fetch(`${base}/`)).text();
+  const idx = await (await fetch(`${base}/all`)).text();
   assert.match(idx, /<form id="export-form" method="get" action="\/export">/);
   assert.match(idx, /<input type="checkbox" name="path" value="zip\/deep\/flow\.md"/);
   assert.match(idx, /id="export-selected"/);
@@ -173,4 +173,93 @@ test("note page embeds the Markdown source intact, even around </script", async 
   const m = page.match(/<script id="note-source" type="application\/json">([\s\S]*?)<\/script>/);
   assert.ok(m, "source block present and not cut short");
   assert.equal(JSON.parse(m[1]), md);
+});
+
+test("home is the review queue; every note stays listed under /all", async () => {
+  await put("queue/one.md", "# Queue one\n\nfirst draft\n");
+  const home = await (await fetch(`${base}/`)).text();
+  assert.match(home, /<body class="dash">/);
+  assert.match(home, /To review/);
+  assert.match(home, /Queue one/);
+  const all = await (await fetch(`${base}/all`)).text();
+  assert.match(all, /id="export-form"/);
+  assert.match(all, /Queue one/);
+});
+
+test("reviewing a note moves it through the queue and a new publish brings it back", async () => {
+  const patch = (action) => fetch(`${base}/api/notes/queue/one.md/review`, { method: "PATCH", body: JSON.stringify({ action }) });
+  const state = async () => (await (await fetch(`${base}/api/notes/queue/one.md/review`)).json());
+
+  assert.equal((await state()).state, "review");
+  let page = await (await fetch(`${base}/n/queue/one.md`)).text();
+  assert.match(page, /id="reviewbar"/);
+  assert.match(page, /data-action="reviewed"/);
+
+  // No token needed: it is the reviewer's own bookkeeping, like comments.
+  const r = await patch("reviewed");
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).state, "refining");
+  let queue = await (await fetch(`${base}/api/review`)).json();
+  assert.equal(queue.counts.refining, 1);
+  assert.deepEqual((await (await fetch(`${base}/api/review?state=refining`)).json()).notes.map((n) => n.path), ["queue/one.md"]);
+
+  assert.equal((await (await patch("settle")).json()).state, "settled");
+  page = await (await fetch(`${base}/n/queue/one.md`)).text();
+  assert.match(page, /state-settled/);
+
+  assert.equal((await put("queue/one.md", "# Queue one\n\nsecond draft\n")).status, 200);
+  const back = await state();
+  assert.equal(back.state, "review");
+  assert.equal(back.changed, true);
+  const home = await (await fetch(`${base}/`)).text();
+  assert.match(home, /changed since you read it/);
+
+  assert.equal((await patch("nope")).status, 400);
+  assert.equal((await fetch(`${base}/api/review?state=bogus`)).status, 400);
+  assert.equal((await fetch(`${base}/api/notes/missing.md/review`)).status, 404);
+});
+
+test("the diff page shows what changed since the version you reviewed, with comments on the new side", async () => {
+  const review = (action) => fetch(`${base}/api/notes/diff/d.md/review`, { method: "PATCH", body: JSON.stringify({ action }) });
+  await put("diff/d.md", "# D\n\nkeep this\n\nremove this\n");
+  await review("reviewed");
+  await put("diff/d.md", "# D\n\nkeep this\n\nadded this\n");
+
+  const page = await fetch(`${base}/diff/diff/d.md`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /class="drow changed"/);
+  assert.match(html, /remove this/);
+  assert.match(html, /added this/);
+  assert.match(html, /<article id="note"/);
+  assert.match(html, /id="toggle-comments"/);
+  assert.match(html, /data-layout="split"/);
+
+  const vs = (await (await fetch(`${base}/api/notes/diff/d.md/versions`)).json()).versions;
+  const explicit = await (await fetch(`${base}/diff/diff/d.md?from=${vs[1].id}&to=${vs[0].id}`)).text();
+  assert.match(explicit, /class="drow changed"/);
+  const old = await (await fetch(`${base}/diff/diff/d.md?from=${vs[0].id}&to=${vs[1].id}`)).text();
+  assert.match(old, new RegExp(`data-version="${vs[1].id}"`), "comments on an old target are made against that version");
+
+  assert.equal((await fetch(`${base}/diff/missing.md`)).status, 404);
+  // Same trap as /n/.versions/x.md: a bad path must be a 400, not a crash.
+  assert.equal((await fetch(`${base}/diff/.versions/x.md`)).status, 400);
+  assert.equal((await fetch(`${base}/healthz`)).status, 200);
+});
+
+test("settle-before settles old unreviewed notes and keeps today's", async () => {
+  const before = new Date(Date.now() + 60_000).toISOString();
+  const r = await fetch(`${base}/api/review/settle-before`, { method: "POST", body: JSON.stringify({ before }) });
+  assert.equal(r.status, 200);
+  const out = await r.json();
+  assert.ok(out.settled >= 1);
+  assert.equal((await fetch(`${base}/api/review/settle-before`, { method: "POST", body: "{}" })).status, 400);
+  assert.equal((await fetch(`${base}/api/review/settle-before`, { method: "POST", body: "nope" })).status, 400);
+});
+
+test("review routes cannot be shadowed by a custom slug", async () => {
+  for (const slug of ["all", "diff"]) {
+    const r = await put(`slug-${slug}.md?slug=${slug}`, "# x\n");
+    assert.equal(r.status, 400, slug);
+  }
 });
