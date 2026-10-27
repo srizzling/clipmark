@@ -691,7 +691,18 @@
   // ------------------------------------------------------------ note page
   async function initNote() {
     const article = $("#note");
+    // Jumps to a heading or footnote land below the sticky toolbar, however
+    // tall it is (the review bar and notices change its height).
+    const head = $(".stickyhead");
+    if (head && window.ResizeObserver) {
+      new ResizeObserver(() => document.documentElement.style.setProperty("--sticky", `${head.offsetHeight}px`)).observe(head);
+    }
     await renderMermaid(article);
+    // Diagrams change the page's height once drawn, so an address with a
+    // #heading needs jumping to again.
+    if (location.hash.length > 1) {
+      try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* malformed hash */ }
+    }
     const source = JSON.parse($("#note-source")?.textContent ?? '""');
     const modeSel = $("#diagram-mode");
     if (modeSel) {
@@ -1005,7 +1016,7 @@
     }
     let timer;
     const refresh = async () => {
-      const r = await fetch("/api/render", { method: "POST", body: ta.value, headers: { "Content-Type": "text/markdown" } });
+      const r = await fetch(`/api/render?path=${encodeURIComponent(pathIn.value.trim())}`, { method: "POST", body: ta.value, headers: { "Content-Type": "text/markdown" } });
       preview.innerHTML = await r.text();
       await renderMermaid(preview);
     };

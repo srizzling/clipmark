@@ -218,6 +218,7 @@ mark { background: #fff2a8; color: inherit; border-radius: 2px; }
 
 /* The toolbar and review bar travel together, so the choices stay in reach while reading. */
 .stickyhead { position: sticky; top: 0; z-index: 5; background: var(--bg); }
+.markdown-body [id] { scroll-margin-top: calc(var(--sticky, 6rem) + 0.75rem); }
 .stickyhead .toolbar { position: static; }
 .reviewfoot { margin-top: 2.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bar); }
 

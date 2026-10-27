@@ -124,7 +124,7 @@ test("short links resolve, can be chosen, and never shadow routes", async () => 
 
   const page = await fetch(`${base}/${j.slug}`);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /<h1>Linked<\/h1>/);
+  assert.match(await page.text(), /<h1 id="linked">Linked<\/h1>/);
 
   const custom = await (await put("links/a.md?slug=my-doc", "# Linked\n\nbody v2")).json();
   assert.equal(custom.slug, "my-doc");
