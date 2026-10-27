@@ -241,12 +241,14 @@ test("the diff page shows what changed since the version you reviewed, with comm
   assert.match(html, /<article id="note"/);
   assert.match(html, /id="toggle-comments"/);
   assert.match(html, /data-layout="split"/);
+  assert.match(html, /<a class="btn" href="\/[^"?]+" title="Leave the diff/, "a way out of the diff to the plain page");
 
   const vs = (await (await fetch(`${base}/api/notes/diff/d.md/versions`)).json()).versions;
   const explicit = await (await fetch(`${base}/diff/diff/d.md?from=${vs[1].id}&to=${vs[0].id}`)).text();
   assert.match(explicit, /class="drow changed"/);
   const old = await (await fetch(`${base}/diff/diff/d.md?from=${vs[0].id}&to=${vs[1].id}`)).text();
   assert.match(old, new RegExp(`data-version="${vs[1].id}"`), "comments on an old target are made against that version");
+  assert.match(old, new RegExp(`href="/[^"?]+\\?v=${vs[1].id}" title="Leave the diff`), "View page opens the version being compared");
 
   assert.equal((await fetch(`${base}/diff/missing.md`)).status, 404);
   // Same trap as /n/.versions/x.md: a bad path must be a 400, not a crash.

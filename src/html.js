@@ -267,6 +267,7 @@ export function diffPage({ siteTitle, note, rows, stats, versions, from, to, rev
     <span class="muted">${h(summary)}</span>
   </div>
   <div class="right">
+    <a class="btn" href="/${h(note.slug)}${to.current ? "" : `?v=${encodeURIComponent(toId)}`}" title="Leave the diff and read the note as a normal page">View page</a>
     <form class="compare" method="get" action="/diff/${enc}">
       <label>From <select name="from">${versions.map((v) => opt(v, v.id === from?.id)).join("")}</select></label>
       <label>To <select name="to">${versions.map((v) => opt(v, v.id === toId)).join("")}</select></label>
