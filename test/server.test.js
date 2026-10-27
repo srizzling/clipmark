@@ -124,7 +124,7 @@ test("short links resolve, can be chosen, and never shadow routes", async () => 
 
   const page = await fetch(`${base}/${j.slug}`);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /<h1>Linked<\/h1>/);
+  assert.match(await page.text(), /<h1 id="linked">Linked<\/h1>/);
 
   const custom = await (await put("links/a.md?slug=my-doc", "# Linked\n\nbody v2")).json();
   assert.equal(custom.slug, "my-doc");
@@ -241,12 +241,14 @@ test("the diff page shows what changed since the version you reviewed, with comm
   assert.match(html, /<article id="note"/);
   assert.match(html, /id="toggle-comments"/);
   assert.match(html, /data-layout="split"/);
+  assert.match(html, /<a class="btn" href="\/[^"?]+" title="Leave the diff/, "a way out of the diff to the plain page");
 
   const vs = (await (await fetch(`${base}/api/notes/diff/d.md/versions`)).json()).versions;
   const explicit = await (await fetch(`${base}/diff/diff/d.md?from=${vs[1].id}&to=${vs[0].id}`)).text();
   assert.match(explicit, /class="drow changed"/);
   const old = await (await fetch(`${base}/diff/diff/d.md?from=${vs[0].id}&to=${vs[1].id}`)).text();
   assert.match(old, new RegExp(`data-version="${vs[1].id}"`), "comments on an old target are made against that version");
+  assert.match(old, new RegExp(`href="/[^"?]+\\?v=${vs[1].id}" title="Leave the diff`), "View page opens the version being compared");
 
   assert.equal((await fetch(`${base}/diff/missing.md`)).status, 404);
   // Same trap as /n/.versions/x.md: a bad path must be a 400, not a crash.
@@ -262,6 +264,51 @@ test("settle-before settles old unreviewed notes and keeps today's", async () =>
   assert.ok(out.settled >= 1);
   assert.equal((await fetch(`${base}/api/review/settle-before`, { method: "POST", body: "{}" })).status, 400);
   assert.equal((await fetch(`${base}/api/review/settle-before`, { method: "POST", body: "nope" })).status, 400);
+});
+
+test("bulk settles several notes at once, or none if one is missing", async () => {
+  await put("bulk/a.md", "# Bulk a\n\nzorbleplex\n");
+  await put("bulk/b.md", "# Bulk b\n\nzorbleplex\n");
+  await put("bulk/c.md", "# Bulk c\n\nzorbleplex\n");
+  const bulk = (body) => fetch(`${base}/api/review/bulk`, { method: "POST", body: JSON.stringify(body) });
+  const state = async (p) => (await (await fetch(`${base}/api/notes/${p}/review`)).json()).state;
+
+  const home = await (await fetch(`${base}/`)).text();
+  assert.match(home, /<input type="checkbox" class="pick" name="path" value="bulk\/a.md"/);
+  assert.match(home, /id="bulkbar"/);
+
+  // One bad path and nothing changes.
+  assert.equal((await bulk({ action: "settle", paths: ["bulk/a.md", "bulk/missing.md"] })).status, 404);
+  assert.equal(await state("bulk/a.md"), "review");
+
+  const r = await bulk({ action: "settle", paths: ["bulk/a.md", "bulk/b.md", "bulk/a.md"] });
+  assert.equal(r.status, 200);
+  const out = await r.json();
+  assert.deepEqual(out.notes.map((n) => [n.path, n.state]), [["bulk/a.md", "settled"], ["bulk/b.md", "settled"]]);
+  assert.equal(await state("bulk/c.md"), "review");
+
+  assert.equal((await bulk({ action: "nope", paths: ["bulk/c.md"] })).status, 400);
+  assert.equal((await bulk({ action: "settle", paths: [] })).status, 400);
+  assert.equal((await bulk({ action: "settle" })).status, 400);
+  assert.equal((await fetch(`${base}/api/review/bulk`, { method: "POST", body: "nope" })).status, 400);
+});
+
+test("the queue can be filtered by search words, keeping its groups", async () => {
+  await put("filter/plum.md", "# Quillfeather plan\n\nabout vexmorrow\n");
+  await put("filter/pear.md", "# Pear notes\n\nnothing to see\n");
+  await fetch(`${base}/api/review/bulk`, { method: "POST", body: JSON.stringify({ action: "reset", paths: ["filter/plum.md", "filter/pear.md"] }) });
+
+  const page = await (await fetch(`${base}/?q=vexmorow`)).text();
+  assert.match(page, /Quillfeather plan/, "typos forgiven, as in search");
+  assert.doesNotMatch(page, /Pear notes/);
+  assert.match(page, /1 note in the queue matches/);
+  assert.match(page, /<mark>vexmorrow<\/mark>/);
+  assert.match(page, /href="\/[^"?]+\?q=vexmorow"/, "opening a match carries the words for highlighting");
+  assert.doesNotMatch(page, /id="settle-old"/, "the catch-up button acts on everything, so it hides under a filter");
+
+  const none = await (await fetch(`${base}/?q=qqqzzzxxx`)).text();
+  assert.match(none, /Nothing in the queue matches/);
+  assert.match(await (await fetch(`${base}/`)).text(), /Pear notes/);
 });
 
 test("review routes cannot be shadowed by a custom slug", async () => {

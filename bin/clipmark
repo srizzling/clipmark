@@ -20,6 +20,7 @@
 #   clipmark queue [review|refining|settled|all]      # where each note stands in the reviewer's queue (JSON)
 #   clipmark state remote/path.md                     # one note's review state
 #   clipmark mark remote/path.md reviewed|settle|reset  # the reviewer's call; agents should not settle
+#   clipmark mark-all reviewed|settle|reset a.md b.md ...  # the same decision for several notes; all or nothing
 set -eu
 
 : "${CLIPMARK_URL:?set CLIPMARK_URL to the server base URL}"
@@ -100,10 +101,16 @@ case "$cmd" in
     req GET "/api/notes/${1:?usage: clipmark state <remote/path.md>}/review"; echo ;;
   mark)
     req PATCH "/api/notes/${1:?usage: clipmark mark <remote/path.md> reviewed|settle|reset}/review" -H 'Content-Type: application/json' -d "{\"action\":\"${2:?usage: clipmark mark <remote/path.md> reviewed|settle|reset}\"}"; echo ;;
+  mark-all)
+    action="${1:?usage: clipmark mark-all reviewed|settle|reset <remote/path.md> ...}"; shift
+    [ $# -gt 0 ] || { echo 'usage: clipmark mark-all reviewed|settle|reset <remote/path.md> ...' >&2; exit 2; }
+    paths=""
+    for p in "$@"; do paths="${paths:+$paths,}\"$(printf '%s' "$p" | sed 's/\\/\\\\/g; s/"/\\"/g')\""; done
+    req POST "/api/review/bulk" -H 'Content-Type: application/json' -d "{\"action\":\"$action\",\"paths\":[$paths]}"; echo ;;
   reopen)
     req PATCH "/api/notes/${1:?usage: clipmark reopen <remote/path.md> <id>}/comments/${2:?usage: clipmark reopen <remote/path.md> <id>}" -H 'Content-Type: application/json' -d '{"status":"open"}'; echo ;;
   *)
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

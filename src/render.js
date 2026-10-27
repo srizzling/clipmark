@@ -122,12 +122,62 @@ function taskLists(state) {
   }
 }
 
+// GitHub's heading anchors, so links written for GitHub work here: lowercase,
+// punctuation dropped, spaces to hyphens, and "-1", "-2" on repeats.
+export function anchorOf(text) {
+  return text.toLowerCase().trim().replace(/[^\p{L}\p{N}\p{M} _-]/gu, "").replace(/ /g, "-");
+}
+
+function headingIds(state) {
+  const seen = new Map();
+  const t = state.tokens;
+  for (let i = 0; i < t.length - 1; i++) {
+    if (t[i].type !== "heading_open" || t[i].attrGet("id")) continue;
+    const text = (t[i + 1].children || []).filter((c) => c.type === "text" || c.type === "code_inline").map((c) => c.content).join("");
+    const base = anchorOf(text);
+    if (!base) continue;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    t[i].attrSet("id", n ? `${base}-${n}` : base);
+  }
+}
+
+// A note can be opened at /<slug>, /n/<path> or /diff/<path>, so a relative
+// link means something different on each. Resolve links and images against
+// the note's own folder instead (env.path is the note's path), so `other.md`
+// and `img.png` reach the same file from every address. Anchors, absolute
+// paths and URLs with a scheme are left alone.
+function relativeTo(href, path) {
+  if (!path || !href || /^(?:[a-z][a-z0-9+.-]*:|\/|#|\?)/i.test(href)) return href;
+  try {
+    const u = new URL(href, `http://x/n/${encodeURI(path)}`);
+    return u.pathname + u.search + u.hash;
+  } catch { return href; }
+}
+
+function rebase(attr) {
+  return (tokens, idx, options, env, self) => {
+    const t = tokens[idx];
+    const v = t.attrGet(attr);
+    if (v && env?.path) t.attrSet(attr, relativeTo(v, env.path));
+    return self.renderToken(tokens, idx, options);
+  };
+}
+
 export function createRenderer() {
   const md = new MarkdownIt({ html: true, linkify: true, typographer: false, breaks: false });
   md.use(footnote);
   md.renderer.rules.fence = fence;
   md.core.ruler.after("inline", "gfm_alerts", alerts);
   md.core.ruler.after("gfm_alerts", "gfm_tasks", taskLists);
+  md.core.ruler.after("gfm_tasks", "heading_ids", headingIds);
+  md.renderer.rules.link_open = rebase("href");
+  const image = md.renderer.rules.image;
+  md.renderer.rules.image = (tokens, idx, options, env, self) => {
+    const t = tokens[idx];
+    if (env?.path) t.attrSet("src", relativeTo(t.attrGet("src"), env.path));
+    return image(tokens, idx, options, env, self);
+  };
   return md;
 }
 
@@ -139,8 +189,9 @@ export function parse(markdown) {
   return shared.parse(markdown, {});
 }
 
-export function render(markdown) {
-  return shared.render(markdown);
+// `path`, when given, is the note's own path: relative links resolve from its folder.
+export function render(markdown, { path = null } = {}) {
+  return shared.render(markdown, { path });
 }
 
 // First H1, else null. Used for page titles and the index.

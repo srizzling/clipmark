@@ -81,7 +81,7 @@ export function createApp(opts = {}) {
     if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`);
     const note = v ? await store.readVersion(rel, v) : await store.read(rel);
     const versions = await store.versions(rel);
-    const html = render(note.markdown);
+    const html = render(note.markdown, { path: rel });
     const review = v || isSystem(rel) ? null : store.describeReview(rel, note.markdown);
     // What changed since the reviewer last looked, as block positions, so the
     // page can mark them without anything being added to the article.
@@ -128,8 +128,16 @@ export function createApp(opts = {}) {
       }
 
       // The review queue is the home page; every note is under /all.
+      // ?q= narrows it to the notes that match, best match first.
       if (p === "/" && req.method === "GET") {
-        return send(res, 200, dashboardPage({ siteTitle, notes: await store.listReview() }));
+        const q = (url.searchParams.get("q") ?? "").slice(0, 200);
+        let notes = await store.listReview();
+        if (q.trim()) {
+          const { results } = await store.search(q, { limit: Infinity });
+          const hit = new Map(results.map((r, i) => [r.path, { i, snippet: r.snippet, highlights: r.highlights }]));
+          notes = notes.filter((n) => hit.has(n.path)).map((n) => ({ ...n, ...hit.get(n.path) })).sort((a, b) => a.i - b.i);
+        }
+        return send(res, 200, dashboardPage({ siteTitle, notes, q }));
       }
 
       if (p === "/search" && req.method === "GET") {
@@ -219,7 +227,7 @@ export function createApp(opts = {}) {
         const earlier = versions[versions.findIndex((v) => v.id === toVersion) + 1]?.id;
         const fromId = wanted || [review.reviewedVersion, earlier].find((id) => id && id !== toVersion && versions.some((v) => v.id === id)) || null;
         const from = fromId ? await store.readVersion(rel, fromId) : null;
-        const { rows, stats } = diffNotes(from?.markdown ?? "", to.markdown);
+        const { rows, stats } = diffNotes(from?.markdown ?? "", to.markdown, { path: rel });
         return send(res, 200, diffPage({
           siteTitle, note: { ...to, title: titleOf(to.markdown, rel) }, rows, stats, versions,
           from: from && { id: fromId }, to: { id: toVersion, current: !toId }, review: toId ? null : review,
@@ -236,8 +244,10 @@ export function createApp(opts = {}) {
       }
 
       if (p === "/api/render" && req.method === "POST") {
+        // ?path= is the note being edited, so the preview's links resolve like the page's.
         const md = await readBody(req);
-        return send(res, 200, render(md));
+        const at = url.searchParams.get("path");
+        return send(res, 200, render(md, { path: at && at.endsWith(".md") ? at : null }));
       }
 
       if (p === "/api/notes" && req.method === "GET") {
@@ -273,6 +283,13 @@ export function createApp(opts = {}) {
         let body;
         try { body = JSON.parse(await readBody(req)); } catch { throw new BadReview("body must be JSON"); }
         return json(res, 200, await store.settleBefore(body?.before));
+      }
+      // One decision for several notes at once, e.g. settling a batch from the queue.
+      if (p === "/api/review/bulk" && req.method === "POST") {
+        let body;
+        try { body = JSON.parse(await readBody(req)); } catch { throw new BadReview("body must be JSON"); }
+        const notes = await store.setReviews(body?.paths, body?.action);
+        return json(res, 200, { action: body.action, notes });
       }
       // Where a note is published elsewhere, and whether that copy is behind.
       // Open to anyone who can reach the server, like review: it is bookkeeping.

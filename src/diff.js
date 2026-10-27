@@ -76,11 +76,12 @@ function related(a, b) {
 // place), "removed" or "added". `old` and `new` are rendered HTML, or null.
 // Each row also says which block of the new note it is (`at`), so a caller can
 // find it on a page rendered from the same Markdown. `html: false` skips
-// rendering when only the shape of the change is wanted.
-export function diffNotes(oldMarkdown, newMarkdown, { html = true } = {}) {
+// rendering when only the shape of the change is wanted. `path` is the note's
+// path, so relative links resolve as they do on the note page.
+export function diffNotes(oldMarkdown, newMarkdown, { html = true, path = null } = {}) {
   const a = blocksOf(oldMarkdown ?? ""), b = blocksOf(newMarkdown ?? "");
   const rows = [];
-  const show = html ? render : () => null;
+  const show = html ? (md) => render(md, { path }) : () => null;
   let dels = [], adds = [];
   // Between two unchanged blocks, pair each removed block with the next added
   // block it resembles; whatever is left over is a plain removal or addition.
