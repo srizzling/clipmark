@@ -474,18 +474,29 @@ export class Store {
 
   // reviewed: read it, still refining. settle: done. reset: back to the queue.
   async setReview(rel, action) {
+    return (await this.setReviews([rel], action))[0];
+  }
+
+  // The same decision for several notes, saved once. Every path is read
+  // before anything changes, so one missing note leaves the rest untouched.
+  async setReviews(rels, action) {
     if (!REVIEW_ACTIONS.includes(action)) throw new BadReview(`action must be one of ${REVIEW_ACTIONS.join(", ")}`);
-    const p = safePath(rel);
-    const { markdown } = await this.read(p);
-    if (action === "reset") this.reviews.delete(p);
-    else {
-      this.reviews.set(p, {
-        hash: hashOf(markdown), version: (await this.versions(p))[0]?.id ?? null,
-        reviewedAt: new Date().toISOString(), settled: action === "settle",
-      });
+    if (!Array.isArray(rels) || !rels.length) throw new BadReview("paths must be a non-empty list");
+    const paths = [...new Set(rels.map((r) => safePath(String(r))))];
+    const notes = [];
+    for (const p of paths) {
+      if (!(await this.exists(p))) throw Object.assign(new Error(`no note at ${p}`), { status: 404 });
+      notes.push({ p, markdown: (await this.read(p)).markdown, version: (await this.versions(p))[0]?.id ?? null });
+    }
+    const reviewedAt = new Date().toISOString();
+    for (const { p, markdown, version } of notes) {
+      if (action === "reset") this.reviews.delete(p);
+      else this.reviews.set(p, { hash: hashOf(markdown), version, reviewedAt, settled: action === "settle" });
     }
     await this.saveReviews();
-    return this.reviewOf(p);
+    const out = [];
+    for (const p of paths) out.push(await this.reviewOf(p));
+    return out;
   }
 
   // Every note with where it stands, newest first. `openComments` counts open

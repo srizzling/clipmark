@@ -61,7 +61,9 @@ Publishing is one HTTP request, every change is kept, and there is no database.
 - **Review queue.** The home page lists what is still **to review**, what
   you have read and sent back (**refining**) and what is **settled**. Open a
   note and choose **Keep refining** or **Settle**; opening alone changes
-  nothing. Adding a comment to a note that is waiting or settled moves it to
+  nothing. Settling takes you back to the queue. Tick several notes in the
+  queue to settle them together, and type in the box at the top to narrow the
+  queue to the notes that match. Adding a comment to a note that is waiting or settled moves it to
   refining, since a comment means it needs more work. A new publish drops a reviewed or settled note back into the queue
   marked "changed since you read it", with a **diff** against the version you
   reviewed, as rendered blocks, unified or side by side. The note page itself

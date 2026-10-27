@@ -860,7 +860,13 @@
         try {
           const r = await fetch(api, { method: "PATCH", body: JSON.stringify({ action: b.dataset.action }) });
           if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-          location.reload();
+          // Settling is the end of a note's review, so go back to the queue
+          // (as it was filtered) and say what happened there.
+          if (b.dataset.action === "settle") {
+            const title = $(".toolbar .title")?.textContent?.trim();
+            sessionStorage.setItem("clipmark.flash", title ? `Settled “${title}”` : "Settled");
+            location.href = sessionStorage.getItem("clipmark.queue") || "/";
+          } else location.reload();
         } catch (err) { toast(err.message || String(err), true); b.disabled = false; }
       };
     }
@@ -888,20 +894,105 @@
 
   // ------------------------------------------------------- review dashboard
   function initDash() {
-    const btn = $("#settle-old");
-    if (!btn) return;
-    btn.onclick = async () => {
-      // "Today" is the reviewer's today, not the server's.
-      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-      if (!confirm("Settle every note you have never reviewed that was last changed before today? Notes changed today stay in the queue.")) return;
-      btn.disabled = true;
+    const main = $("main.dash");
+    // Where "Settle" on a note page comes back to, filter included.
+    sessionStorage.setItem("clipmark.queue", location.pathname + location.search);
+    const flash = sessionStorage.getItem("clipmark.flash");
+    // app.js loads before the toast element, so wait for the rest of the page.
+    if (flash) { sessionStorage.removeItem("clipmark.flash"); document.addEventListener("DOMContentLoaded", () => toast(flash)); }
+
+    // The filter works as a plain GET form. Typing swaps in the server's
+    // filtered queue below the form, so focus and the caret stay put.
+    const form = $("form.queuefilter"), input = form && $("input[name=q]", form);
+    let timer, seq = 0;
+    const refilter = async () => {
+      const q = input.value.trim();
+      const href = q ? `/?q=${encodeURIComponent(q)}` : "/";
+      const mine = ++seq;
       try {
-        const r = await fetch("/api/review/settle-before", { method: "POST", body: JSON.stringify({ before: midnight.toISOString() }) });
-        const out = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(out.error || `HTTP ${r.status}`);
-        location.reload();
-      } catch (err) { toast(err.message || String(err), true); btn.disabled = false; }
+        const doc = new DOMParser().parseFromString(await (await fetch(href, { cache: "no-store" })).text(), "text/html");
+        if (mine !== seq) return;
+        const kept = new Set(picked());
+        for (const el of [...main.children].filter((el) => el !== form && el.tagName !== "H1")) el.remove();
+        main.append(...[...$("main.dash", doc).children].filter((el) => el.tagName !== "H1" && !el.matches("form.queuefilter")));
+        const clear = $("a.btn", form), fresh = $("form.queuefilter a.btn", doc);
+        if (clear && !fresh) clear.remove(); else if (!clear && fresh) form.append(fresh);
+        for (const box of boxes()) box.checked = kept.has(box.value);
+        history.replaceState(null, "", href);
+        sessionStorage.setItem("clipmark.queue", href);
+        bind();
+      } catch { /* offline or restarting: the form still submits */ }
     };
+    if (input) input.oninput = () => { clearTimeout(timer); timer = setTimeout(refilter, 250); };
+
+    const boxes = () => $$("input.pick", main);
+    const picked = () => boxes().filter((b) => b.checked).map((b) => b.value);
+    function update() {
+      const on = boxes().filter((b) => b.checked);
+      const bar = $("#bulkbar");
+      bar.hidden = !on.length;
+      $("#bulk-count").textContent = `${on.length} selected`;
+      for (const all of $$("input.pick-all", main)) {
+        const list = $$(`ul.queue[data-state="${all.dataset.state}"] input.pick`, main);
+        const n = list.filter((b) => b.checked).length;
+        all.checked = n > 0 && n === list.length;
+        all.indeterminate = n > 0 && n < list.length;
+      }
+    }
+
+    // Everything below lives in the part of the page the filter replaces.
+    function bind() {
+      for (const all of $$("input.pick-all", main)) {
+        all.onchange = () => {
+          for (const b of $$(`ul.queue[data-state="${all.dataset.state}"] input.pick`, main)) b.checked = all.checked;
+          update();
+        };
+      }
+      // Shift-click ticks the range since the last box clicked.
+      let last = null;
+      for (const box of boxes()) {
+        box.onclick = (e) => {
+          if (e.shiftKey && last && last !== box && boxes().includes(last)) {
+            const list = boxes(), a = list.indexOf(last), b = list.indexOf(box);
+            list.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => (x.checked = box.checked));
+          }
+          last = box;
+          update();
+        };
+      }
+      $("[data-bulk=clear]", main).onclick = () => { boxes().forEach((b) => (b.checked = false)); update(); };
+      const settle = $("[data-bulk=settle]", main);
+      settle.onclick = async () => {
+        const on = boxes().filter((b) => b.checked);
+        if (!on.length) return;
+        const open = on.reduce((sum, b) => sum + (Number(b.dataset.open) || 0), 0);
+        if (open && !confirm(`${open} comment${open === 1 ? " is" : "s are"} still open on the selected notes. Settle anyway? They stay open.`)) return;
+        settle.disabled = true;
+        try {
+          const r = await fetch("/api/review/bulk", { method: "POST", body: JSON.stringify({ action: "settle", paths: on.map((b) => b.value) }) });
+          const out = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(out.error || `HTTP ${r.status}`);
+          sessionStorage.setItem("clipmark.flash", `Settled ${on.length} note${on.length === 1 ? "" : "s"}`);
+          location.reload();
+        } catch (err) { toast(err.message || String(err), true); settle.disabled = false; }
+      };
+
+      const btn = $("#settle-old");
+      if (btn) btn.onclick = async () => {
+        // "Today" is the reviewer's today, not the server's.
+        const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+        if (!confirm("Settle every note you have never reviewed that was last changed before today? Notes changed today stay in the queue.")) return;
+        btn.disabled = true;
+        try {
+          const r = await fetch("/api/review/settle-before", { method: "POST", body: JSON.stringify({ before: midnight.toISOString() }) });
+          const out = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(out.error || `HTTP ${r.status}`);
+          location.reload();
+        } catch (err) { toast(err.message || String(err), true); btn.disabled = false; }
+      };
+      update();
+    }
+    bind();
   }
 
   // ---------------------------------------------------------- editor page

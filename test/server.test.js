@@ -266,6 +266,51 @@ test("settle-before settles old unreviewed notes and keeps today's", async () =>
   assert.equal((await fetch(`${base}/api/review/settle-before`, { method: "POST", body: "nope" })).status, 400);
 });
 
+test("bulk settles several notes at once, or none if one is missing", async () => {
+  await put("bulk/a.md", "# Bulk a\n\nzorbleplex\n");
+  await put("bulk/b.md", "# Bulk b\n\nzorbleplex\n");
+  await put("bulk/c.md", "# Bulk c\n\nzorbleplex\n");
+  const bulk = (body) => fetch(`${base}/api/review/bulk`, { method: "POST", body: JSON.stringify(body) });
+  const state = async (p) => (await (await fetch(`${base}/api/notes/${p}/review`)).json()).state;
+
+  const home = await (await fetch(`${base}/`)).text();
+  assert.match(home, /<input type="checkbox" class="pick" name="path" value="bulk\/a.md"/);
+  assert.match(home, /id="bulkbar"/);
+
+  // One bad path and nothing changes.
+  assert.equal((await bulk({ action: "settle", paths: ["bulk/a.md", "bulk/missing.md"] })).status, 404);
+  assert.equal(await state("bulk/a.md"), "review");
+
+  const r = await bulk({ action: "settle", paths: ["bulk/a.md", "bulk/b.md", "bulk/a.md"] });
+  assert.equal(r.status, 200);
+  const out = await r.json();
+  assert.deepEqual(out.notes.map((n) => [n.path, n.state]), [["bulk/a.md", "settled"], ["bulk/b.md", "settled"]]);
+  assert.equal(await state("bulk/c.md"), "review");
+
+  assert.equal((await bulk({ action: "nope", paths: ["bulk/c.md"] })).status, 400);
+  assert.equal((await bulk({ action: "settle", paths: [] })).status, 400);
+  assert.equal((await bulk({ action: "settle" })).status, 400);
+  assert.equal((await fetch(`${base}/api/review/bulk`, { method: "POST", body: "nope" })).status, 400);
+});
+
+test("the queue can be filtered by search words, keeping its groups", async () => {
+  await put("filter/plum.md", "# Quillfeather plan\n\nabout vexmorrow\n");
+  await put("filter/pear.md", "# Pear notes\n\nnothing to see\n");
+  await fetch(`${base}/api/review/bulk`, { method: "POST", body: JSON.stringify({ action: "reset", paths: ["filter/plum.md", "filter/pear.md"] }) });
+
+  const page = await (await fetch(`${base}/?q=vexmorow`)).text();
+  assert.match(page, /Quillfeather plan/, "typos forgiven, as in search");
+  assert.doesNotMatch(page, /Pear notes/);
+  assert.match(page, /1 note in the queue matches/);
+  assert.match(page, /<mark>vexmorrow<\/mark>/);
+  assert.match(page, /href="\/[^"?]+\?q=vexmorow"/, "opening a match carries the words for highlighting");
+  assert.doesNotMatch(page, /id="settle-old"/, "the catch-up button acts on everything, so it hides under a filter");
+
+  const none = await (await fetch(`${base}/?q=qqqzzzxxx`)).text();
+  assert.match(none, /Nothing in the queue matches/);
+  assert.match(await (await fetch(`${base}/`)).text(), /Pear notes/);
+});
+
 test("review routes cannot be shadowed by a custom slug", async () => {
   for (const slug of ["all", "diff", "search"]) {
     const r = await put(`slug-${slug}.md?slug=${slug}`, "# x\n");

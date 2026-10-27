@@ -165,17 +165,20 @@ export function searchPage({ siteTitle, q, total, results }) {
 
 // The review queue. Three groups, derived from the notes' review state: what
 // still needs the reviewer, what they have read and sent back for more work,
-// and what is done.
-export function dashboardPage({ siteTitle, notes }) {
+// and what is done. `q` narrows it to the notes a search matched; those rows
+// carry a snippet. Open notes have a checkbox so several can be settled at once.
+export function dashboardPage({ siteTitle, notes, q = "" }) {
   const by = (state) => notes.filter((n) => n.state === state);
   const row = (n) => `
       <li class="${n.changed ? "changed" : ""}">
+        ${n.state === "settled" ? "" : `<input type="checkbox" class="pick" name="path" value="${h(n.path)}" data-open="${n.openComments}" aria-label="Select ${h(n.title)}">`}
         <div class="main">
-          <a class="title" href="/${h(n.slug)}">${h(n.title)}</a>
+          <a class="title" href="/${h(n.slug)}${q ? `?q=${encodeURIComponent(q)}` : ""}">${h(n.title)}</a>
           ${n.changed ? `<a class="pill changed" href="/diff/${encodeURI(n.path)}" title="This note was published again after you reviewed it. See what changed.">changed since you read it</a>` : ""}
           ${n.openComments ? `<span class="pill open" title="Open comments and flags">${n.openComments} open comment${n.openComments === 1 ? "" : "s"}</span>` : ""}
           ${linkPills(n, n.link)}
           <div class="muted mono">${h(n.path)}</div>
+          ${n.snippet ? `<p class="snippet">${marked(n.snippet, n.highlights)}</p>` : ""}
         </div>
         <div class="meta muted">
           ${n.state === "review" ? `updated ${when(n.mtime)}` : `reviewed ${when(n.reviewedAt)}`}
@@ -184,31 +187,45 @@ export function dashboardPage({ siteTitle, notes }) {
       </li>`;
   const section = (state, empty) => {
     const list = by(state);
-    return list.length ? `<ul class="queue">${list.map(row).join("")}</ul>` : `<p class="muted empty">${empty}</p>`;
+    return list.length ? `<ul class="queue" data-state="${state}">${list.map(row).join("")}</ul>` : `<p class="muted empty">${q ? "Nothing here matches." : empty}</p>`;
+  };
+  const heading = (state, label) => {
+    const n = by(state).length;
+    return `<h2>${n ? `<input type="checkbox" class="pick-all" data-state="${state}" aria-label="Select every note in ${label}" title="Select all">` : ""}${label} <span class="pill">${n}</span></h2>`;
   };
   const settled = by("settled");
   const body = `
 <main class="dash">
   <h1>Review</h1>
+  <form class="bigsearch queuefilter" action="/" method="get" role="search">
+    <input type="search" name="q" value="${h(q)}" placeholder="Filter the queue by title, text or path" aria-label="Filter the review queue" autocomplete="off">
+    ${q ? `<a class="btn" href="/">Clear</a>` : ""}
+  </form>
+  ${q.trim() ? `<p class="muted" id="filter-summary">${notes.length ? `${notes.length} note${notes.length === 1 ? "" : "s"} in the queue match${notes.length === 1 ? "es" : ""} <strong>${h(q)}</strong>.` : `Nothing in the queue matches <strong>${h(q)}</strong>.`}</p>` : ""}
   <section>
-    <h2>To review <span class="pill">${by("review").length}</span></h2>
+    ${heading("review", "To review")}
     ${section("review", "Nothing waiting on you.")}
-    ${by("review").length ? `<div class="catchup">
+    ${by("review").length && !q.trim() ? `<div class="catchup">
       <button id="settle-old" type="button" title="Settle every note that has never been reviewed and was last changed before today. Notes changed today stay in the queue.">Settle everything older than today</button>
       <span class="muted">One-off catch-up for notes that existed before review did.</span>
     </div>` : ""}
   </section>
   <section>
-    <h2>Refining <span class="pill">${by("refining").length}</span></h2>
+    ${heading("refining", "Refining")}
     ${section("refining", "Nothing sent back for more work.")}
   </section>
-  <details class="settled"${settled.length && !by("review").length && !by("refining").length ? " open" : ""}>
+  <details class="settled"${settled.length && (q.trim() || (!by("review").length && !by("refining").length)) ? " open" : ""}>
     <summary>Settled <span class="pill">${settled.length}</span></summary>
     ${section("settled", "Nothing settled yet.")}
   </details>
+  <div class="bulkbar" id="bulkbar" hidden>
+    <span id="bulk-count"></span>
+    <button type="button" class="primary" data-bulk="settle" title="I have read these and they are done.">Settle selected</button>
+    <button type="button" data-bulk="clear">Clear selection</button>
+  </div>
 </main>
 <script src="/assets/app.js"></script>`;
-  return layout({ title: "Review", siteTitle, body, bodyClass: "dash" });
+  return layout({ title: q ? `Review: ${q}` : "Review", siteTitle, body, bodyClass: "dash" });
 }
 
 // The bar at the top of a note: where it stands, and the choices from there.

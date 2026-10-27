@@ -156,6 +156,15 @@ ul.queue .meta { white-space: nowrap; font-size: 0.85rem; }
 ul.queue .pill.changed { background: var(--warning); text-decoration: none; color: inherit; }
 ul.queue .pill.open { background: var(--error); }
 main.dash .empty { margin: 0.5rem 0.25rem; }
+ul.queue li > .main { flex: 1; min-width: 0; }
+ul.queue li > .pick { margin: 0.3rem 0 0; cursor: pointer; flex: none; align-self: flex-start; }
+ul.queue .snippet { margin: 0.3rem 0 0; font-size: 0.9rem; }
+main.dash h2 .pick-all { margin: 0 0.6rem 0 0.25rem; cursor: pointer; vertical-align: middle; }
+form.queuefilter .btn { align-self: center; }
+/* Appears once something is ticked, and stays in view while scrolling. */
+.bulkbar { position: sticky; bottom: 1rem; display: flex; align-items: center; gap: 0.8rem; margin-top: 1.5rem; padding: 0.6rem 0.9rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
+.bulkbar[hidden] { display: none; }
+.bulkbar #bulk-count { flex: 1; font-weight: 600; }
 main.dash .catchup { margin-top: 0.8rem; display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; font-size: 0.85rem; }
 details.settled { margin-top: 1.5rem; }
 details.settled summary { cursor: pointer; font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }

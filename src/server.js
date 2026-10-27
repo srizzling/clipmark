@@ -128,8 +128,16 @@ export function createApp(opts = {}) {
       }
 
       // The review queue is the home page; every note is under /all.
+      // ?q= narrows it to the notes that match, best match first.
       if (p === "/" && req.method === "GET") {
-        return send(res, 200, dashboardPage({ siteTitle, notes: await store.listReview() }));
+        const q = (url.searchParams.get("q") ?? "").slice(0, 200);
+        let notes = await store.listReview();
+        if (q.trim()) {
+          const { results } = await store.search(q, { limit: Infinity });
+          const hit = new Map(results.map((r, i) => [r.path, { i, snippet: r.snippet, highlights: r.highlights }]));
+          notes = notes.filter((n) => hit.has(n.path)).map((n) => ({ ...n, ...hit.get(n.path) })).sort((a, b) => a.i - b.i);
+        }
+        return send(res, 200, dashboardPage({ siteTitle, notes, q }));
       }
 
       if (p === "/search" && req.method === "GET") {
@@ -273,6 +281,13 @@ export function createApp(opts = {}) {
         let body;
         try { body = JSON.parse(await readBody(req)); } catch { throw new BadReview("body must be JSON"); }
         return json(res, 200, await store.settleBefore(body?.before));
+      }
+      // One decision for several notes at once, e.g. settling a batch from the queue.
+      if (p === "/api/review/bulk" && req.method === "POST") {
+        let body;
+        try { body = JSON.parse(await readBody(req)); } catch { throw new BadReview("body must be JSON"); }
+        const notes = await store.setReviews(body?.paths, body?.action);
+        return json(res, 200, { action: body.action, notes });
       }
       // Where a note is published elsewhere, and whether that copy is behind.
       // Open to anyone who can reach the server, like review: it is bookkeeping.
