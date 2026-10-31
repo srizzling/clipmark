@@ -624,7 +624,8 @@
     function placeNear(node, range) {
       const rects = range.getClientRects();
       const r = rects[rects.length - 1] || range.getBoundingClientRect();
-      node.style.top = `${r.bottom + window.scrollY + 6}px`;
+      // On touch the system's selection handles hang below the text, so sit lower.
+      node.style.top = `${r.bottom + window.scrollY + (coarse.matches ? 32 : 6)}px`;
       node.style.left = `${Math.max(8, Math.min(r.right + window.scrollX - 20, window.scrollX + document.documentElement.clientWidth - 300))}px`;
     }
 
@@ -632,7 +633,7 @@
     function closeForm() { form.hidden = true; ta.value = ""; patternSel.value = ""; pending = null; CSS.highlights?.delete("clipmark-active"); }
 
     function onSelect() {
-      if (!form.hidden) return;
+      if (!form.hidden || Date.now() < barTapUntil) return;
       const sel = getSelection();
       if (!sel.rangeCount || sel.isCollapsed) return hideAdd();
       const range = sel.getRangeAt(0);
@@ -643,9 +644,22 @@
       placeNear(addBar, range);
       addBar.hidden = false;
     }
-    document.addEventListener("mouseup", () => setTimeout(onSelect, 0));
+    // A mouse selection ends on mouseup. Touch has no such event: a long-press
+    // and the drag of the selection handles only fire selectionchange, so that
+    // is what shows the bar there (debounced, as it fires on every handle move).
+    let mouseIsDown = false, selTimer = 0, barTapUntil = 0;
+    const coarse = matchMedia("(pointer: coarse)");
+    document.addEventListener("mouseup", () => { mouseIsDown = false; setTimeout(onSelect, 0); });
     document.addEventListener("keyup", (e) => { if (e.shiftKey || e.key.startsWith("Arrow")) onSelect(); });
-    document.addEventListener("mousedown", (e) => { if (!addBar.contains(e.target)) hideAdd(); });
+    document.addEventListener("mousedown", (e) => { mouseIsDown = true; if (!addBar.contains(e.target)) hideAdd(); });
+    document.addEventListener("selectionchange", () => {
+      if (mouseIsDown) return;
+      clearTimeout(selTimer);
+      selTimer = setTimeout(onSelect, 250);
+    });
+    // Tapping the bar can collapse the selection before the click lands, which
+    // would hide the button under the finger.
+    addBar.addEventListener("pointerdown", () => { barTapUntil = Date.now() + 1000; });
 
     addBar.addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
     addBtn.onclick = () => openForm("comment");
