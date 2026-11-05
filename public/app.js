@@ -703,8 +703,35 @@
   }
 
   // ------------------------------------------------------------ note page
+  // The all-parts page of a split document: fetch each part's rendered page
+  // in order and move its article in. One part at a time, so the server only
+  // ever renders one part.
+  async function loadWhole(article) {
+    const parts = JSON.parse(article.dataset.parts || "[]");
+    const status = $("#whole-status");
+    for (let i = 0; i < parts.length; i++) {
+      status.textContent = `Loading part ${i + 1} of ${parts.length}…`;
+      const r = await fetch(`/n/${encodeURI(parts[i])}`);
+      if (!r.ok) throw new Error(`part ${i + 1} (${parts[i]}) did not load: ${r.status}`);
+      const part = new DOMParser().parseFromString(await r.text(), "text/html").getElementById("note");
+      if (!part) throw new Error(`part ${i + 1} (${parts[i]}) has no note on its page`);
+      // childNodes is live: move from the front until it is empty.
+      const frag = document.createDocumentFragment();
+      while (part.firstChild) frag.appendChild(document.adoptNode(part.firstChild));
+      article.appendChild(frag);
+    }
+    status.textContent = `All ${parts.length} parts. Copy for pasting copies them as one document.`;
+  }
+
   async function initNote() {
     const article = $("#note");
+    const whole = document.body.classList.contains("whole");
+    if (whole) {
+      try { await loadWhole(article); } catch (err) {
+        $("#whole-status").textContent = err.message || String(err);
+        return toast("Could not load every part", true);
+      }
+    }
     // Jumps to a heading or footnote land below the sticky toolbar, however
     // tall it is (the review bar and notices change its height).
     const head = $(".stickyhead");
@@ -717,7 +744,7 @@
     if (location.hash.length > 1) {
       try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* malformed hash */ }
     }
-    const source = JSON.parse($("#note-source")?.textContent ?? '""');
+    const source = whole ? null : JSON.parse($("#note-source")?.textContent ?? '""');
     const modeSel = $("#diagram-mode");
     if (modeSel) {
       modeSel.value = localStorage.getItem("clipmark.diagramMode") || "image";
@@ -728,11 +755,12 @@
       const b = e.currentTarget; b.disabled = true;
       try {
         const html = await exportHtml(article, modeSel?.value || "image");
-        if (await copyRich(html, source)) toast("Copied - paste into your editor");
+        if (await copyRich(html, source ?? article.innerText)) toast("Copied - paste into your editor");
         else toast("Copy failed", true);
       } catch (err) { toast(err.message || String(err), true); }
       b.disabled = false;
     };
+    if (whole) { copyRichBtn.disabled = false; return; }
     const copyLinkBtn = $("#copy-link");
     if (copyLinkBtn) copyLinkBtn.onclick = async (e) => {
       if (await copyText(e.currentTarget.dataset.url)) toast("Link copied");

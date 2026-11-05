@@ -11,7 +11,7 @@ import { timingSafeEqual } from "node:crypto";
 import { render, titleOf } from "./render.js";
 import { Store, isSystem, BadPath, BadSlug, BadComment, BadReview, BadLink, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
 import { digest, slopDigest } from "./comments.js";
-import { indexPage, dashboardPage, searchPage, diffPage, notePage, editorPage, errorPage } from "./html.js";
+import { indexPage, dashboardPage, searchPage, diffPage, notePage, wholePage, editorPage, errorPage } from "./html.js";
 import { diffNotes } from "./diff.js";
 import { zip } from "./zip.js";
 
@@ -21,7 +21,6 @@ const pkg = require("../package.json");
 
 const PUBLIC_DIR = path.join(here, "..", "public");
 const MERMAID = path.join(path.dirname(require.resolve("mermaid/package.json")), "dist", "mermaid.min.js");
-const MAX_BODY = 5 * 1024 * 1024;
 
 const MIME = {
   ".css": "text/css; charset=utf-8",
@@ -43,6 +42,12 @@ export function createApp(opts = {}) {
   const token = opts.token ?? process.env.CLIPMARK_TOKEN ?? process.env.NOTES_TOKEN ?? "";
   const siteTitle = opts.siteTitle ?? process.env.SITE_TITLE ?? "Notes";
   const publicUrlEnv = opts.publicUrl ?? process.env.PUBLIC_URL ?? "";
+  const maxBody = opts.maxBody ?? (Number(process.env.MAX_BODY_MB) || 5) * 1024 * 1024;
+  const maxBodyMb = +(maxBody / 1048576).toFixed(2);
+  // One note is rendered whole, in memory, so it has its own cap; a bigger
+  // document is published with ?split=1 as parts that each render alone.
+  const maxNote = opts.maxNote ?? (Number(process.env.MAX_NOTE_MB) || 5) * 1024 * 1024;
+  const maxNoteMb = +(maxNote / 1048576).toFixed(2);
   const store = new Store(notesDir);
 
   const send = (res, status, body, type = "text/html; charset=utf-8", extra = {}) => {
@@ -60,12 +65,20 @@ export function createApp(opts = {}) {
     return a.length === b.length && timingSafeEqual(a, b);
   };
 
+  // Over the limit, keep draining instead of destroying the socket: a reset
+  // reaches the client before the 413 does, so all it sees is "connection reset".
   const readBody = (req) => new Promise((resolve, reject) => {
+    const tooLarge = () => {
+      req.removeAllListeners("data");
+      req.resume();
+      reject(Object.assign(new Error(`body too large: the limit is ${maxBodyMb} MB (MAX_BODY_MB)`), { status: 413 }));
+    };
+    if (Number(req.headers["content-length"]) > maxBody) return tooLarge();
     const chunks = [];
     let size = 0;
     req.on("data", (c) => {
       size += c.length;
-      if (size > MAX_BODY) { reject(Object.assign(new Error("body too large"), { status: 413 })); req.destroy(); }
+      if (size > maxBody) tooLarge();
       else chunks.push(c);
     });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
@@ -77,8 +90,29 @@ export function createApp(opts = {}) {
   const pathUrl = (req, rel) => `${publicUrl(req)}/n/${encodeURI(rel)}`;
   const withUrls = (req, n) => ({ ...n, url: shortUrl(req, n.slug), pathUrl: pathUrl(req, n.path) });
 
+  // Where a note sits in a split document, with what its page links to.
+  async function seriesFor(rel) {
+    const s = await store.seriesOf(rel);
+    if (!s) return null;
+    const index = await store.read(s.index);
+    return {
+      at: s.at, total: s.parts.length, parts: s.parts,
+      index: { path: s.index, slug: index.slug, title: titleOf(index.markdown, s.index), markdown: index.markdown },
+      prev: s.at > 0 ? s.parts[s.at - 1] : null,
+      next: s.at >= 0 && s.at < s.parts.length - 1 ? s.parts[s.at + 1] : null,
+    };
+  }
+
   async function renderNote(req, res, rel, v, q = "") {
     if (!(await store.exists(rel))) return fail(res, 404, `no note at ${rel}`);
+    const series = await seriesFor(rel);
+    // ?all=1 on a contents note: every part on one page, fetched by the
+    // browser one at a time, so the server never renders the whole document.
+    if (series && series.at < 0 && !v && new URL(req.url, "http://x").searchParams.has("all")) {
+      const first = /^.*\n?/.exec(series.index.markdown)[0];
+      const heading = /^#\s/.test(first) ? render(first, { path: rel }) : "";
+      return send(res, 200, wholePage({ siteTitle, note: series.index, heading, parts: series.parts }));
+    }
     const note = v ? await store.readVersion(rel, v) : await store.read(rel);
     const versions = await store.versions(rel);
     const html = render(note.markdown, { path: rel });
@@ -98,7 +132,7 @@ export function createApp(opts = {}) {
     return send(res, 200, notePage({
       siteTitle, note: { ...note, title: titleOf(note.markdown, rel) }, html, versions, viewing: v,
       publicUrl: publicUrl(req), shortUrl: shortUrl(req, note.slug),
-      review, changes, link: store.describeLink(rel, note.markdown),
+      review, changes, link: store.describeLink(rel, note.markdown), series,
       hits: v || !q ? [] : await store.searchWords(rel, q),
     }));
   }
@@ -167,7 +201,7 @@ export function createApp(opts = {}) {
       // Machine-readable description of the API, with this deployment's URL.
       if (p === "/llms.txt" && req.method === "GET") {
         const txt = (await fs.readFile(path.join(PUBLIC_DIR, "llms.txt"), "utf8"))
-          .replaceAll("{{PUBLIC_URL}}", publicUrl(req)).replaceAll("{{VERSION}}", pkg.version);
+          .replaceAll("{{PUBLIC_URL}}", publicUrl(req)).replaceAll("{{VERSION}}", pkg.version).replaceAll("{{MAX_BODY_MB}}", maxBodyMb).replaceAll("{{MAX_NOTE_MB}}", maxNoteMb);
         return send(res, 200, txt, "text/plain; charset=utf-8");
       }
 
@@ -385,6 +419,15 @@ export function createApp(opts = {}) {
           // ?slug=my-name (or X-Slug header) picks the short URL; otherwise one
           // is assigned on first publish and kept.
           const slug = url.searchParams.get("slug") || req.headers["x-slug"] || null;
+          const split = !["", "0", "false", "no"].includes(url.searchParams.get("split") ?? "");
+          if (split) {
+            const result = await store.writeSplit(rel, markdown, { slug });
+            const parts = result.parts.map((p) => withUrls(req, p));
+            return json(res, result.created ? 201 : 200, withUrls(req, { ...result, parts, link: store.describeLink(rel, (await store.read(rel)).markdown) }));
+          }
+          if (Buffer.byteLength(markdown) > maxNote) {
+            return fail(res, 413, `too large for one note: the limit is ${maxNoteMb} MB (MAX_NOTE_MB). Publish with ?split=1 to split it into parts.`, true);
+          }
           const result = await store.write(rel, markdown, { slug });
           // If the note is published elsewhere, say whether that copy is now behind.
           return json(res, result.created ? 201 : 200, withUrls(req, { ...result, link: store.describeLink(rel, markdown) }));

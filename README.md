@@ -95,6 +95,8 @@ Or from a checkout: `npm ci && NOTES_DIR=./notes npm start`.
 | `CLIPMARK_TOKEN` | unset | if set, `PUT`/`DELETE` need `Authorization: Bearer <token>`. Unset means anyone who can reach the server can publish. |
 | `PUBLIC_URL` | derived from `Host` | base URL used in API responses and the index page |
 | `SITE_TITLE` | `Notes` | header text |
+| `MAX_BODY_MB` | `5` | largest request body accepted; bigger ones get `413`. |
+| `MAX_NOTE_MB` | `5` | largest single note. Rendering takes many times a note's size in memory, so a bigger document must be published with `?split=1`. |
 
 The container runs as `node` (uid 1000); the mounted notes directory has to be
 writable by that user or `/healthz` will report `writable: false`.
@@ -122,6 +124,30 @@ clipmark export team/design.md team/rollout.md > design.zip   # no paths = every
 There is also a browser editor at `/new` and `/edit/<path>` with a live
 preview, which publishes through the same API.
 
+### Big documents
+
+A note is rendered whole, in memory, and that takes many times its size, so a
+big document is slow to open and can exhaust a small server. Publish it with
+`?split=1` (`clipmark publish --split big.md`) and it becomes a contents note
+plus parts beside it, `big.part-01.md`, `big.part-02.md` and so on, each about
+512 KB at most:
+
+- Parts break at `#` and `##` headings where they can. A table or code block
+  too big for one part is cut between rows or lines, with the table header
+  repeated.
+- Footnotes and link references go with the parts that use them. `#anchor`
+  links to a heading in another part point at that part.
+- Each part is an ordinary note: it renders, copies, is reviewed and commented
+  on by itself, and has previous and next links. The contents note links to
+  `?all=1`, which loads every part into one page in the browser, so you can
+  read it straight through or copy it all at once.
+- Publishing again updates the parts in place and removes the ones no longer
+  needed, keeping their history. A document small enough for one part is
+  published as one note.
+
+Parts are found by name (`<name>.part-NN.md` beside `<name>.md`), so they can
+also be published one request at a time.
+
 ## API
 
 | Method | Path | |
@@ -129,7 +155,7 @@ preview, which publishes through the same API.
 | `GET` | `/api/notes` | list notes with titles and URLs |
 | `GET` | `/api/notes/<path>` | one note: markdown, mtime, versions. `?v=<id>` for an old version |
 | `GET` | `/api/notes/<path>/versions` | version list, newest first |
-| `PUT` | `/api/notes/<path>` | create or update. Body is the Markdown. `201` on create, `200` on update, `changed: false` when the content was identical. `?slug=my-name` sets the short link |
+| `PUT` | `/api/notes/<path>` | create or update. Body is the Markdown. `201` on create, `200` on update, `changed: false` when the content was identical. `?slug=my-name` sets the short link. `?split=1` publishes a big document as parts and adds `parts` and `removed` to the response |
 | `DELETE` | `/api/notes/<path>` | remove the current copy. History is kept |
 | `GET` | `/api/notes/<path>/comments` | review comments. `?status=open` (default), `resolved` or `all`; `?format=md` for a Markdown digest an agent can work from |
 | `POST` | `/api/notes/<path>/comments` | add one: JSON `{ quote, body, prefix?, suffix?, version?, kind?, pattern? }`. `kind: "slop"` flags AI-sounding text and may omit `body`. `?kind=slop` filters the list |

@@ -312,7 +312,21 @@ ${reviewBar(note, review)}
   return layout({ title: `Diff: ${note.title}`, siteTitle, body, bodyClass: "note diffpage" });
 }
 
-export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review, changes = null, link = null, hits = [] }) {
+// Previous, next and the contents note, on a page that is one part of a
+// split document; on the contents note, a way to see every part at once.
+// Outside the article, so none of it is copied.
+function partsNav(note, series) {
+  if (!series) return "";
+  if (series.at < 0) {
+    return `<nav class="parts" data-nocopy><span>This document is in ${series.total} parts.</span> <a href="/${h(note.slug)}?all=1">Read or copy all ${series.total} parts on one page</a></nav>`;
+  }
+  const go = (p, label) => (p ? `<a href="/n/${h(encodeURI(p))}">${label}</a>` : `<span class="muted">${label}</span>`);
+  return `<nav class="parts" data-nocopy>${go(series.prev, "← Previous")}
+    <span>Part ${series.at + 1} of ${series.total} of <a href="/n/${h(encodeURI(series.index.path))}">${h(series.index.title)}</a></span>
+    ${go(series.next, "Next →")}</nav>`;
+}
+
+export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, shortUrl, review, changes = null, link = null, hits = [], series = null }) {
   const path = note.path;
   const enc = encodeURI(path);
   const current = !viewing;
@@ -358,6 +372,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     ${history}
   </div>
 </div>
+${partsNav(note, series)}
 ${current ? reviewBar(note, review, changes) : ""}
 </div>
 ${banner}
@@ -371,6 +386,41 @@ ${html}
 <script src="/vendor/mermaid.min.js"></script>
 <script src="/assets/app.js"></script>`;
   return layout({ title: note.title, siteTitle, body, bodyClass: "note" });
+}
+
+// Every part of a split document on one page, for reading straight through
+// and for one "Copy for pasting". The browser fetches the parts one by one;
+// see loadWhole in app.js.
+export function wholePage({ siteTitle, note, heading, parts }) {
+  const body = `
+<div class="stickyhead">
+<div class="toolbar" data-nocopy>
+  <div class="left">
+    <a class="back" href="/${h(note.slug)}" title="Back to the contents">←</a>
+    <span class="title">${h(note.title)}</span>
+    <span class="muted">all ${parts.length} parts</span>
+  </div>
+  <div class="right">
+    <label class="diagrams">Diagrams
+      <select id="diagram-mode" title="How Mermaid diagrams are placed in the copied content">
+        <option value="image">as image</option>
+        <option value="code">as code</option>
+        <option value="both">image + code</option>
+      </select>
+    </label>
+    <button id="copy-rich" class="primary" disabled title="Copy every part as rich text, ready to paste into an editor">Copy for pasting</button>
+  </div>
+</div>
+<nav class="parts" data-nocopy><span id="whole-status">Loading ${parts.length} parts…</span></nav>
+</div>
+<main>
+  <article id="note" class="markdown-body" data-parts="${h(JSON.stringify(parts))}">
+${heading}
+  </article>
+</main>
+<script src="/vendor/mermaid.min.js"></script>
+<script src="/assets/app.js"></script>`;
+  return layout({ title: `${note.title} (all parts)`, siteTitle, body, bodyClass: "note whole" });
 }
 
 export function editorPage({ siteTitle, path, markdown, hasToken }) {

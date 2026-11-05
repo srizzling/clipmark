@@ -5,6 +5,7 @@
 #   export CLIPMARK_TOKEN=...            # only if the server has one set
 #
 #   clipmark publish doc.md [remote/path.md] [slug]   # create or update (versioned)
+#   clipmark publish --split big.md [remote/path.md]  # a big document as a contents note plus parts
 #   clipmark list
 #   clipmark get remote/path.md
 #   clipmark history remote/path.md
@@ -37,17 +38,18 @@ req() {
   # req METHOD PATH [curl args...]
   method="$1"; p="$2"; shift 2
   if [ -n "$auth" ]; then
-    curl -fsS -X "$method" -H "$auth" "$@" "$base$p"
+    curl --fail-with-body -sS -X "$method" -H "$auth" "$@" "$base$p"
   else
-    curl -fsS -X "$method" "$@" "$base$p"
+    curl --fail-with-body -sS -X "$method" "$@" "$base$p"
   fi
 }
 
 case "$cmd" in
   publish|push|put)
-    file="${1:?usage: clipmark publish <file.md> [remote/path.md] [slug]}"
+    split=""; [ "${1:-}" = --split ] && { split="split=1"; shift; }
+    file="${1:?usage: clipmark publish [--split] <file.md> [remote/path.md] [slug]}"
     remote="${2:-$(basename "$file")}"
-    q=""; [ -n "${3:-}" ] && q="?slug=$3"
+    q="${3:+slug=$3}"; q="$split${split:+${q:+&}}$q"; q="${q:+?$q}"
     req PUT "/api/notes/$remote$q" -H 'Content-Type: text/markdown' --data-binary "@$file"
     echo
     ;;
@@ -110,7 +112,7 @@ case "$cmd" in
   reopen)
     req PATCH "/api/notes/${1:?usage: clipmark reopen <remote/path.md> <id>}/comments/${2:?usage: clipmark reopen <remote/path.md> <id>}" -H 'Content-Type: application/json' -d '{"status":"open"}'; echo ;;
   *)
-    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac
