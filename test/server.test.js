@@ -41,6 +41,85 @@ test("publishing needs the token", async () => {
   assert.equal((await put("a.md", "# A\n\nhello v2")).status, 200);
 });
 
+test("oversized bodies get a readable 413, not a reset", async () => {
+  const own = await mkdtemp(path.join(tmpdir(), "clipmark-big-"));
+  const small = createApp({ notesDir: own, token: TOKEN, maxBody: 64 });
+  const { port } = await small.listen(0, "127.0.0.1");
+  try {
+    const url = `http://127.0.0.1:${port}/api/notes/big.md`;
+    const headers = { Authorization: `Bearer ${TOKEN}`, Accept: "application/json" };
+    const r = await fetch(url, { method: "PUT", body: "x".repeat(1000), headers });
+    assert.equal(r.status, 413);
+    assert.match((await r.json()).error, /limit is/);
+    // A chunked body has no Content-Length, so the limit trips mid-stream.
+    const stream = new ReadableStream({ start(c) { for (let i = 0; i < 20; i++) c.enqueue(new TextEncoder().encode("y".repeat(100))); c.close(); } });
+    const s = await fetch(url, { method: "PUT", body: stream, duplex: "half", headers });
+    assert.equal(s.status, 413);
+    assert.equal((await fetch(url, { method: "PUT", body: "# ok", headers })).status, 201);
+    assert.match(await (await fetch(`http://127.0.0.1:${port}/llms.txt`)).text(), /capped at [\d.]+ MB/);
+  } finally { await small.close(); await rm(own, { recursive: true, force: true }); }
+});
+
+test("?split=1 publishes a big document as a contents note plus parts", async () => {
+  const section = (n) => `## Section ${n}\n\n${"Words in a long section of a big document.\n".repeat(5000)}\n`;
+  const doc = `# Big guide\n\n${[1, 2, 3, 4].map(section).join("")}`; // ~860 KB
+  let r = await put("big/guide.md?split=1", doc);
+  assert.equal(r.status, 201);
+  let j = await r.json();
+  assert.match(j.url, new RegExp(`/${j.slug}$`));
+  assert.deepEqual(j.parts.map((p) => p.path), ["big/guide.part-01.md", "big/guide.part-02.md", "big/guide.part-03.md", "big/guide.part-04.md"]);
+  assert.deepEqual(j.parts.map((p) => p.title), ["Section 1", "Section 2", "Section 3", "Section 4"]);
+  for (const p of j.parts) assert.match(p.url, /^http:\/\/127\.0\.0\.1:\d+\/[a-z-]+$/);
+
+  const index = await (await fetch(`${base}/raw/big/guide.md`)).text();
+  assert.match(index, /^# Big guide\n\n1\. \[Section 1\]\(guide\.part-01\.md\)/);
+
+  // A part links back and on, outside the article; the contents note offers every part at once.
+  const part = await (await fetch(`${base}/n/big/guide.part-02.md`)).text();
+  assert.match(part, /<title>Section 2 · T<\/title>/);
+  assert.match(part, /Part 2 of 4 of <a href="\/n\/big\/guide\.md">Big guide<\/a>/);
+  assert.match(part, /href="\/n\/big\/guide\.part-01\.md">← Previous/);
+  assert.match(part, /href="\/n\/big\/guide\.part-03\.md">Next →/);
+  assert.ok(part.indexOf('class="parts"') < part.indexOf('id="note"'));
+  const contents = await (await fetch(`${base}/${j.slug}`)).text();
+  assert.match(contents, new RegExp(`href="/${j.slug}\\?all=1"`));
+  const whole = await (await fetch(`${base}/${j.slug}?all=1`)).text();
+  assert.match(whole, /data-parts="\[&quot;big\/guide\.part-01\.md&quot;/);
+  assert.match(whole, /<h1 id="big-guide">Big guide<\/h1>/);
+  assert.doesNotMatch(whole, /Words in a long section/);
+
+  // Unchanged parts stay unchanged; parts the new text does not need go, history kept.
+  r = await put("big/guide.md?split=1", `# Big guide\n\n${[1, 2, 3].map(section).join("")}`);
+  j = await r.json();
+  assert.equal(r.status, 200);
+  assert.deepEqual(j.parts.map((p) => p.changed), [false, false, false]);
+  assert.deepEqual(j.removed, ["big/guide.part-04.md"]);
+  assert.equal((await fetch(`${base}/n/big/guide.part-04.md`)).status, 404);
+  assert.equal((await (await fetch(`${base}/api/notes/big/guide.part-04.md/versions`)).json()).versions.length, 1);
+
+  // Small enough again: one note, and the parts are retired.
+  j = await (await put("big/guide.md?split=1", "# Big guide\n\nShort now.\n")).json();
+  assert.deepEqual(j.parts, []);
+  assert.deepEqual(j.removed, ["big/guide.part-01.md", "big/guide.part-02.md", "big/guide.part-03.md"]);
+  assert.doesNotMatch(await (await fetch(`${base}/n/big/guide.md`)).text(), /class="parts"/);
+  await fetch(`${base}/api/notes/big/guide.md`, { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } });
+});
+
+test("a note too big to render whole is refused with a pointer to ?split=1", async () => {
+  const own = await mkdtemp(path.join(tmpdir(), "clipmark-note-"));
+  const small = createApp({ notesDir: own, token: TOKEN, maxNote: 1024 });
+  const { port } = await small.listen(0, "127.0.0.1");
+  try {
+    const url = `http://127.0.0.1:${port}/api/notes/x.md`;
+    const headers = { Authorization: `Bearer ${TOKEN}` };
+    const body = `## A\n\n${"text\n".repeat(400)}`;
+    const r = await fetch(url, { method: "PUT", body, headers });
+    assert.equal(r.status, 413);
+    assert.match((await r.json()).error, /\?split=1/);
+    assert.equal((await fetch(`${url}?split=1`, { method: "PUT", body, headers })).status, 201);
+  } finally { await small.close(); await rm(own, { recursive: true, force: true }); }
+});
+
 test("bad paths are rejected", async () => {
   assert.equal((await put("..%2Fx.md", "x")).status, 400);
   assert.equal((await put("x.txt", "x")).status, 400);

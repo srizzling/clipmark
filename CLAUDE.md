@@ -18,7 +18,7 @@ npm test       # node --test, across test/*.test.js
 ```
 
 `src/render.js` is the renderer (markdown-it + GFM extras), `src/store.js` the
-notes/versions/slugs/comments store, `src/comments.js` the comment anchoring and digest, `src/server.js` the HTTP API and pages, `src/diff.js` the block-level diff, `src/search.js` the fuzzy matcher and snippets, `src/html.js`
+notes/versions/slugs/comments store, `src/comments.js` the comment anchoring and digest, `src/server.js` the HTTP API and pages, `src/diff.js` the block-level diff, `src/search.js` the fuzzy matcher and snippets, `src/split.js` the splitter for big documents, `src/html.js`
 the templates, `public/app.js` the clipboard and Mermaid code in the browser.
 
 Every async helper called from a route must be `return await`ed, not returned.
@@ -45,6 +45,13 @@ Changing any of these is a breaking change and needs coordination downstream.
   optional `?slug=`; response has `url` (short link), `pathUrl`, `slug`,
   `version`, `changed`. `bin/clipmark` and `public/llms.txt` document it; keep all
   three in step when the API changes.
+- **Split documents**: `?split=1` on the publish writes a contents note plus
+  `<name>.part-NN.md` beside it (`src/split.js`) and adds `parts` and `removed`
+  to the response. Parts are found by that name alone, with no stored index,
+  so the name is the contract. The splitter works on lines, never on
+  markdown-it tokens: tokenising the whole document is the memory cost it
+  exists to avoid. `?all=1` on the contents note is assembled in the browser
+  for the same reason. A body over `MAX_NOTE_MB` without `?split=1` is `413`.
 - **Review comments**: `GET/POST /api/notes/<path>/comments` and
   `PATCH/DELETE .../comments/<id>`, with `?format=md` for the digest, are
   read by agents and need no token. Highlights must stay a CSS Custom Highlight

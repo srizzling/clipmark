@@ -10,6 +10,15 @@ Version: {{VERSION}}
 - `PUT {{PUBLIC_URL}}/api/notes/<path>` with the Markdown as the request body creates or updates a note. `<path>` is relative, may contain folders, and must end in `.md`. Segments may contain letters, digits, `_`, `-`, `.`, and spaces, and may not start with `.`.
 - Send `Content-Type: text/markdown`. If the server has a token configured, send `Authorization: Bearer <token>`; without it you get `401`.
 - Response: `201` on create, `200` on update, JSON `{ path, slug, changed, created, version, url, pathUrl }`. `url` is the short link (`{{PUBLIC_URL}}/<slug>`), `pathUrl` the long form. `changed: false` means the content was identical and no new version was recorded.
+- Request bodies are capped at {{MAX_BODY_MB}} MB on this server, and one note at {{MAX_NOTE_MB}} MB. A larger body gets `413` with the limit in `error`. Link large images instead of embedding them as `data:` URIs.
+
+### Big documents: `?split=1`
+
+- A note is rendered whole, so a big document is slow to open and can exhaust a small server. Add `?split=1` to the `PUT` to publish it as a contents note at `<path>` plus parts beside it, `<name>.part-01.md`, `<name>.part-02.md` and so on, each about 512 KB at most. A document that fits in one part is published as one note.
+- Parts break at `#` and `##` headings where possible. A table or code block too big for one part is cut between rows or lines, with the table header repeated. Footnotes and link references go with the parts that use them, and `#anchor` links to a heading in another part are pointed at that part.
+- The response is the usual one for the contents note, plus `parts: [{ path, slug, title, size, changed, created, version, url, pathUrl }]` and `removed: [paths]`. Publishing again with `?split=1` updates parts in place (unchanged parts report `changed: false`) and removes parts the new text no longer needs, keeping their history.
+- Each part is an ordinary note: review it, comment on it and link it separately. The contents note's page links to `?all=1`, which shows every part on one page for reading straight through and copying as one document.
+- Parts are recognised by name: any `<name>.part-NN.md` beside an existing `<name>.md`. You can also publish parts one `PUT` at a time, which keeps each request small.
 - Every note gets a memorable three-word slug (like `sleepy-wombat-hums`) on first publish and keeps it across updates. Add `?slug=my-name` to the `PUT` to choose one (a-z, 0-9, hyphens, 3-64 chars). Prefer the short `url` when reporting where a note lives.
 - `DELETE {{PUBLIC_URL}}/api/notes/<path>` removes the current copy and keeps the history.
 

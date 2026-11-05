@@ -194,8 +194,9 @@ export function render(markdown, { path = null } = {}) {
   return shared.render(markdown, { path });
 }
 
-// First H1, else null. Used for page titles and the index.
+// First H1, else the first heading of any level (a part of a split document
+// starts at an H2), else the fallback. Used for page titles and the index.
 export function titleOf(markdown, fallback = "Untitled") {
-  const m = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown);
+  const m = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown) ?? /^#{2,6}\s+(.+?)\s*#*\s*$/m.exec(markdown);
   return m ? m[1].trim() : fallback;
 }

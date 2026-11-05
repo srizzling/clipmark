@@ -10,6 +10,7 @@ import { ADJECTIVES, ANIMALS, VERBS } from "./words.js";
 import { locate, paragraphAround } from "./comments.js";
 import { titleOf } from "./render.js";
 import { parseQuery, indexNote, scoreNote } from "./search.js";
+import { splitNote, PART_RE } from "./split.js";
 
 const VERSIONS = ".versions";
 const COMMENTS = ".comments";
@@ -283,6 +284,53 @@ export class Store {
   // Removes the current file; history is kept on purpose.
   async remove(rel) {
     await fs.unlink(this.file(rel));
+  }
+
+  // A document too big to render as one note is published as a contents note
+  // plus parts beside it, `<note>.part-NN.md` (see split.js). The parts are
+  // found by name, so there is nothing else to keep in step.
+  async parts(rel) {
+    const f = this.file(rel);
+    const dir = path.posix.dirname(safePath(rel));
+    const stem = path.basename(f, ".md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`^${stem}\\.part-(\\d+)\\.md$`);
+    let names;
+    try { names = await fs.readdir(path.dirname(f)); } catch { return []; }
+    return names.map((n) => [n, re.exec(n)]).filter(([, m]) => m)
+      .sort((a, b) => Number(a[1][1]) - Number(b[1][1]))
+      .map(([n]) => (dir === "." ? n : `${dir}/${n}`));
+  }
+
+  // Where a note sits in a split document: { index, parts, at }, with at -1
+  // for the contents note, or null when it is not part of one.
+  async seriesOf(rel) {
+    rel = safePath(rel);
+    const m = PART_RE.exec(rel);
+    const index = m ? `${m[1]}.md` : rel;
+    if (m && !(await this.exists(index))) return null;
+    const parts = await this.parts(index);
+    if (!parts.length || (m && !parts.includes(rel))) return null;
+    return { index, parts, at: m ? parts.indexOf(rel) : -1 };
+  }
+
+  // Publishes a document as a contents note plus parts. A document small
+  // enough for one note is written as one. Parts the new text no longer needs
+  // are removed, with their history kept. The contents note is written last,
+  // so it never points at parts that are not there yet.
+  async writeSplit(rel, markdown, { slug = null, max } = {}) {
+    rel = safePath(rel);
+    const { index, parts } = splitNote(rel, markdown, { max });
+    const written = [];
+    for (const p of parts) {
+      const text = p.markdown; // built on read, one part at a time
+      written.push({ ...(await this.write(p.path, text)), title: p.title, size: Buffer.byteLength(text) });
+    }
+    const keep = new Set(parts.map((p) => p.path));
+    const removed = [];
+    for (const old of await this.parts(rel)) {
+      if (!keep.has(old)) { await this.remove(old); removed.push(old); }
+    }
+    return { ...(await this.write(rel, index, { slug })), parts: written, removed };
   }
 
   // Review comments live beside the versions, one JSON file per note, so they

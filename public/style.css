@@ -238,3 +238,6 @@ details.linkbox .pop p { margin: 0.5rem 0 0; font-size: 0.85rem; }
 .pill.changed { background: var(--warning); text-decoration: none; color: inherit; margin-left: 0.3rem; }
 .banner.fresh { position: relative; }
 .banner.fresh button { margin-left: 0.5rem; }
+
+/* Previous / next / contents on a part of a split document. */
+.parts { display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap; padding: 0.4rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
