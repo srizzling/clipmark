@@ -11,10 +11,20 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
+  // Saved choices. Locked-down browsers can refuse site storage outright, and
+  // a throw here once stopped every button on the page from being wired up.
+  const prefs = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* not saved */ } },
+  };
+  // Wait for a promise, but no longer than ms.
+  const within = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+
   // ---------------------------------------------------------------- toast
   let toastTimer;
   function toast(msg, isError = false) {
     const t = $("#toast");
+    if (!t) return;
     t.textContent = msg;
     t.className = "show" + (isError ? " error" : "");
     clearTimeout(toastTimer);
@@ -106,8 +116,23 @@
   // -------------------------------------------------------------- mermaid
   const ready = { mermaid: null };
 
+  // The bundle is 3.5 MB and loads async, so the page works before it
+  // arrives, and keeps working if it never does (a proxy that blocks it).
+  function mermaidLoaded(ms = 30000) {
+    if (window.mermaid) return Promise.resolve(true);
+    const tag = $('script[src^="/vendor/mermaid.min.js"]');
+    if (!tag) return Promise.resolve(false);
+    return new Promise((res) => {
+      const done = () => { clearTimeout(timer); res(!!window.mermaid); };
+      const timer = setTimeout(done, ms);
+      tag.addEventListener("load", done, { once: true });
+      tag.addEventListener("error", done, { once: true });
+    });
+  }
+
   async function renderMermaid(root = document) {
-    if (!window.mermaid) return;
+    if (!$("pre.mermaid:not([data-processed])", root)) return;
+    if (!(await mermaidLoaded())) return;
     if (!ready.mermaid) {
       mermaid.initialize({
         startOnLoad: false,
@@ -738,29 +763,34 @@
     if (head && window.ResizeObserver) {
       new ResizeObserver(() => document.documentElement.style.setProperty("--sticky", `${head.offsetHeight}px`)).observe(head);
     }
-    await renderMermaid(article);
-    // Diagrams change the page's height once drawn, so an address with a
-    // #heading needs jumping to again.
-    if (location.hash.length > 1) {
-      try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* malformed hash */ }
-    }
+    // Diagrams draw in the background. Mermaid is a large download, and no
+    // button may wait for it: on a slow or filtered network it never came and
+    // the page sat with every control disabled.
+    const drawn = renderMermaid(article).then(() => {
+      // Diagrams change the page's height once drawn, so an address with a
+      // #heading needs jumping to again.
+      if (location.hash.length > 1) {
+        try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* malformed hash */ }
+      }
+    });
     const source = whole ? null : JSON.parse($("#note-source")?.textContent ?? '""');
     const modeSel = $("#diagram-mode");
     if (modeSel) {
-      modeSel.value = localStorage.getItem("clipmark.diagramMode") || "image";
-      modeSel.onchange = () => localStorage.setItem("clipmark.diagramMode", modeSel.value);
+      modeSel.value = prefs.get("clipmark.diagramMode") || "image";
+      modeSel.onchange = () => prefs.set("clipmark.diagramMode", modeSel.value);
     }
     const copyRichBtn = $("#copy-rich");
     if (copyRichBtn) copyRichBtn.onclick = async (e) => {
       const b = e.currentTarget; b.disabled = true;
       try {
+        await within(drawn, 10000);
         const html = await exportHtml(article, modeSel?.value || "image");
         if (await copyRich(html, source ?? article.innerText)) toast("Copied - paste into your editor");
         else toast("Copy failed", true);
       } catch (err) { toast(err.message || String(err), true); }
       b.disabled = false;
     };
-    initPdf(article);
+    initPdf(article, drawn);
     if (whole) { copyRichBtn.disabled = false; return; }
     const copyLinkBtn = $("#copy-link");
     if (copyLinkBtn) copyLinkBtn.onclick = async (e) => {
@@ -775,6 +805,8 @@
     initReviewBar();
     initLinkBox();
     initDiff();
+    // These read or paint the article's text, so they wait for the diagrams.
+    await drawn;
     initSearchHits(article);
     initChanges(article);
     initFresh(article);
@@ -787,7 +819,7 @@
   // the article. This only makes sure everything in the article is there
   // before the dialog takes its snapshot, and names the file after the note.
   // Cmd/Ctrl+P goes through the same beforeprint/afterprint path.
-  function initPdf(article) {
+  function initPdf(article, drawn) {
     const btn = $("#export-pdf");
     const title = $(".toolbar .title")?.textContent.trim() || document.title;
     let opened = [];
@@ -813,7 +845,8 @@
     btn.onclick = async () => {
       btn.disabled = true;
       try {
-        await renderMermaid(article);
+        // Print with the diagrams if they come in time, without them if not.
+        await within(drawn, 8000);
         before();
         // Images that have not arrived yet would print as empty boxes.
         await Promise.all($$("img", article).map((img) => (img.complete ? null : img.decode().catch(() => null))));
@@ -866,9 +899,9 @@
     const apply = () => {
       if (!box || box.checked) CSS.highlights.set("clipmark-changed", new Highlight(...ranges));
       else CSS.highlights.delete("clipmark-changed");
-      if (box) localStorage.setItem("clipmark.showChanges", box.checked ? "1" : "0");
+      if (box) prefs.set("clipmark.showChanges", box.checked ? "1" : "0");
     };
-    if (box) { box.checked = localStorage.getItem("clipmark.showChanges") !== "0"; box.onchange = apply; }
+    if (box) { box.checked = prefs.get("clipmark.showChanges") !== "0"; box.onchange = apply; }
     apply();
   }
 
@@ -977,14 +1010,14 @@
     const set = (layout) => {
       article.classList.toggle("split", layout === "split");
       for (const b of $$("button[data-layout]")) b.classList.toggle("on", b.dataset.layout === layout);
-      localStorage.setItem("clipmark.diffLayout", layout);
+      prefs.set("clipmark.diffLayout", layout);
     };
-    set(localStorage.getItem("clipmark.diffLayout") === "split" ? "split" : "unified");
+    set(prefs.get("clipmark.diffLayout") === "split" ? "split" : "unified");
     for (const b of $$("button[data-layout]")) b.onclick = () => set(b.dataset.layout);
     const only = $("#changes-only");
     if (only) {
-      only.checked = localStorage.getItem("clipmark.diffChangesOnly") === "1";
-      const apply = () => { article.classList.toggle("only-changes", only.checked); localStorage.setItem("clipmark.diffChangesOnly", only.checked ? "1" : "0"); };
+      only.checked = prefs.get("clipmark.diffChangesOnly") === "1";
+      const apply = () => { article.classList.toggle("only-changes", only.checked); prefs.set("clipmark.diffChangesOnly", only.checked ? "1" : "0"); };
       only.onchange = apply; apply();
     }
   }
@@ -1097,8 +1130,8 @@
     const ta = $("#edit-md"), preview = $("#preview"), pathIn = $("#edit-path");
     const tokenIn = $("#edit-token"), status = $("#save-status");
     if (tokenIn) {
-      tokenIn.value = localStorage.getItem("clipmark.token") || "";
-      tokenIn.onchange = () => localStorage.setItem("clipmark.token", tokenIn.value);
+      tokenIn.value = prefs.get("clipmark.token") || "";
+      tokenIn.onchange = () => prefs.set("clipmark.token", tokenIn.value);
     }
     let timer;
     const refresh = async () => {
@@ -1154,8 +1187,10 @@
     update();
   }
 
-  if (document.body.classList.contains("note")) initNote();
-  else if (document.body.classList.contains("edit")) initEditor();
-  else if (document.body.classList.contains("index")) initIndex();
-  else if (document.body.classList.contains("dash")) initDash();
+  // A failure while starting up must say so, not leave dead buttons.
+  const started = (p) => p?.catch?.((err) => { console.error(err); toast(`Page did not finish loading: ${err.message || err}`, true); });
+  if (document.body.classList.contains("note")) started(initNote());
+  else if (document.body.classList.contains("edit")) started(initEditor());
+  else if (document.body.classList.contains("index")) started(initIndex());
+  else if (document.body.classList.contains("dash")) started(initDash());
 })();

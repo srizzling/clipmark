@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { timingSafeEqual } from "node:crypto";
+import { gzip } from "node:zlib";
+import { promisify } from "node:util";
 
 import { render, titleOf } from "./render.js";
 import { Store, isSystem, BadPath, BadSlug, BadComment, BadReview, BadLink, REVIEW_STATES, SLUG_RE, RESERVED } from "./store.js";
@@ -146,6 +148,18 @@ export function createApp(opts = {}) {
     createReadStream(abs).pipe(res);
   };
 
+  // The Mermaid bundle is 3.5 MB and every page that can show a diagram loads
+  // it. Gzipped once, on first request, it is about a quarter of that.
+  let mermaidGz = null;
+  const serveMermaid = async (req, res) => {
+    if (!/\bgzip\b/.test(req.headers["accept-encoding"] || "")) return await serveFile(res, MERMAID);
+    mermaidGz ??= fs.readFile(MERMAID).then((buf) => promisify(gzip)(buf, { level: 9 }));
+    let body;
+    try { body = await mermaidGz; } catch (err) { mermaidGz = null; throw err; }
+    res.writeHead(200, { "Content-Type": MIME[".js"], "Content-Length": body.length, "Content-Encoding": "gzip", "Vary": "Accept-Encoding", "Cache-Control": "public, max-age=300" });
+    res.end(body);
+  };
+
   async function handle(req, res) {
     const url = new URL(req.url, "http://x");
     const p = decodeURIComponent(url.pathname);
@@ -196,7 +210,7 @@ export function createApp(opts = {}) {
         if (rel.includes("..") || rel.includes("/")) return fail(res, 404, "not found");
         return await serveFile(res, path.join(PUBLIC_DIR, rel));
       }
-      if (p === "/vendor/mermaid.min.js" && req.method === "GET") return await serveFile(res, MERMAID);
+      if (p === "/vendor/mermaid.min.js" && req.method === "GET") return await serveMermaid(req, res);
 
       // Machine-readable description of the API, with this deployment's URL.
       if (p === "/llms.txt" && req.method === "GET") {

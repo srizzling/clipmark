@@ -133,7 +133,11 @@ test("rendered page, raw, versions and JSON all agree", async () => {
   assert.match(html, /<article id="note"/);
   assert.match(html, /hello v2/);
   assert.match(html, /id="copy-rich"/);
-  assert.match(html, /id="export-pdf"/);
+  // Export PDF works before, and without, the page's script.
+  assert.match(html, /id="export-pdf" onclick="print\(\)"/);
+  assert.doesNotMatch(html, /id="export-pdf"[^>]*disabled/);
+  // Mermaid must not hold up the page's own script.
+  assert.match(html, /<script src="\/vendor\/mermaid\.min\.js" async><\/script>/);
   assert.match(html, /\/vendor\/mermaid\.min\.js/);
 
   const raw = await fetch(`${base}/raw/a.md`);
@@ -164,6 +168,8 @@ test("index lists notes and the mermaid bundle is served", async () => {
   const mm = await fetch(`${base}/vendor/mermaid.min.js`);
   assert.equal(mm.status, 200);
   assert.match(mm.headers.get("content-type"), /javascript/);
+  assert.equal(mm.headers.get("content-encoding"), "gzip");
+  assert.match(await mm.text(), /mermaid/);
 });
 
 test("llms.txt describes the API with this deployment's URL", async () => {

@@ -307,7 +307,7 @@ ${reviewBar(note, review)}
   </article>
   ${reviewBar(note, review, null, true)}
 </main>
-<script src="/vendor/mermaid.min.js"></script>
+<script src="/vendor/mermaid.min.js" async></script>
 <script src="/assets/app.js"></script>`;
   return layout({ title: `Diff: ${note.title}`, siteTitle, body, bodyClass: "note diffpage" });
 }
@@ -364,7 +364,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     </label>
     <button id="copy-rich" class="primary" title="Copy the rendered note as rich text, ready to paste into an editor">Copy for pasting</button>
     <button id="copy-md" title="Copy the Markdown source">Copy Markdown</button>
-    <button id="export-pdf" disabled title="Save the note as a PDF: opens the print dialog with a preview, then choose Save as PDF">Export PDF</button>
+    <button id="export-pdf" onclick="print()" title="Save the note as a PDF: opens the print dialog with a preview, then choose Save as PDF">Export PDF</button>
     <button id="toggle-comments" title="Review comments. Select text in the note to add one.">Comments <span id="comment-count" class="pill" hidden></span></button>
     ${current ? linkControl(note, link) : ""}
     ${current && versions.length > 1 ? `<a class="btn" href="/diff/${enc}" title="Compare with an earlier version">Diff</a>` : ""}
@@ -384,7 +384,7 @@ ${html}
   ${current ? reviewBar(note, review, null, true) : ""}
 </main>
 <script id="note-source" type="application/json">${JSON.stringify(note.markdown).replace(/</g, "\\u003c")}</script>
-<script src="/vendor/mermaid.min.js"></script>
+<script src="/vendor/mermaid.min.js" async></script>
 <script src="/assets/app.js"></script>`;
   return layout({ title: note.title, siteTitle, body, bodyClass: "note" });
 }
@@ -420,7 +420,7 @@ export function wholePage({ siteTitle, note, heading, parts }) {
 ${heading}
   </article>
 </main>
-<script src="/vendor/mermaid.min.js"></script>
+<script src="/vendor/mermaid.min.js" async></script>
 <script src="/assets/app.js"></script>`;
   return layout({ title: `${note.title} (all parts)`, siteTitle, body, bodyClass: "note whole" });
 }
@@ -442,7 +442,7 @@ export function editorPage({ siteTitle, path, markdown, hasToken }) {
   <textarea id="edit-md" spellcheck="false" placeholder="# Title&#10;&#10;Write GitHub-flavoured Markdown. \`\`\`mermaid blocks render as diagrams.">${h(markdown)}</textarea>
   <section id="preview" class="markdown-body"></section>
 </main>
-<script src="/vendor/mermaid.min.js"></script>
+<script src="/vendor/mermaid.min.js" async></script>
 <script src="/assets/app.js"></script>`;
   return layout({ title: path ? `Edit ${path}` : "New note", siteTitle, body, bodyClass: "edit" });
 }
