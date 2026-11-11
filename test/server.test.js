@@ -133,6 +133,7 @@ test("rendered page, raw, versions and JSON all agree", async () => {
   assert.match(html, /<article id="note"/);
   assert.match(html, /hello v2/);
   assert.match(html, /id="copy-rich"/);
+  assert.match(html, /id="export-pdf"/);
   assert.match(html, /\/vendor\/mermaid\.min\.js/);
 
   const raw = await fetch(`${base}/raw/a.md`);

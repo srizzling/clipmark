@@ -760,6 +760,7 @@
       } catch (err) { toast(err.message || String(err), true); }
       b.disabled = false;
     };
+    initPdf(article);
     if (whole) { copyRichBtn.disabled = false; return; }
     const copyLinkBtn = $("#copy-link");
     if (copyLinkBtn) copyLinkBtn.onclick = async (e) => {
@@ -778,6 +779,49 @@
     initChanges(article);
     initFresh(article);
     initReview(article);
+  }
+
+  // ----------------------------------------------------------- pdf export
+  // The browser's own print-to-PDF: text stays text, links stay links, and
+  // Mermaid diagrams stay vector. The print stylesheet strips the page down to
+  // the article. This only makes sure everything in the article is there
+  // before the dialog takes its snapshot, and names the file after the note.
+  // Cmd/Ctrl+P goes through the same beforeprint/afterprint path.
+  function initPdf(article) {
+    const btn = $("#export-pdf");
+    const title = $(".toolbar .title")?.textContent.trim() || document.title;
+    let opened = [];
+    let savedTitle = null;
+    const before = () => {
+      if (savedTitle !== null) return; // the button already ran this
+      // Collapsed sections would print as one summary line.
+      opened = $$("details:not([open])", article);
+      opened.forEach((d) => (d.open = true));
+      for (const img of $$("img[loading=lazy]", article)) img.loading = "eager";
+      savedTitle = document.title;
+      document.title = title; // the default PDF file name
+    };
+    const after = () => {
+      opened.forEach((d) => (d.open = false));
+      opened = [];
+      if (savedTitle !== null) document.title = savedTitle;
+      savedTitle = null;
+    };
+    window.addEventListener("beforeprint", before);
+    window.addEventListener("afterprint", after);
+    if (!btn) return;
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        await renderMermaid(article);
+        before();
+        // Images that have not arrived yet would print as empty boxes.
+        await Promise.all($$("img", article).map((img) => (img.complete ? null : img.decode().catch(() => null))));
+        window.print();
+      } catch (err) { toast(err.message || String(err), true); }
+      btn.disabled = false;
+    };
+    btn.disabled = false;
   }
 
   // ------------------------------------------------------ search highlights

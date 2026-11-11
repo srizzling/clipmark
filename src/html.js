@@ -364,6 +364,7 @@ export function notePage({ siteTitle, note, html, versions, viewing, publicUrl, 
     </label>
     <button id="copy-rich" class="primary" title="Copy the rendered note as rich text, ready to paste into an editor">Copy for pasting</button>
     <button id="copy-md" title="Copy the Markdown source">Copy Markdown</button>
+    <button id="export-pdf" disabled title="Save the note as a PDF: opens the print dialog with a preview, then choose Save as PDF">Export PDF</button>
     <button id="toggle-comments" title="Review comments. Select text in the note to add one.">Comments <span id="comment-count" class="pill" hidden></span></button>
     ${current ? linkControl(note, link) : ""}
     ${current && versions.length > 1 ? `<a class="btn" href="/diff/${enc}" title="Compare with an earlier version">Diff</a>` : ""}
@@ -409,6 +410,7 @@ export function wholePage({ siteTitle, note, heading, parts }) {
       </select>
     </label>
     <button id="copy-rich" class="primary" disabled title="Copy every part as rich text, ready to paste into an editor">Copy for pasting</button>
+    <button id="export-pdf" disabled title="Save every part as one PDF: opens the print dialog with a preview, then choose Save as PDF">Export PDF</button>
   </div>
 </div>
 <nav class="parts" data-nocopy><span id="whole-status">Loading ${parts.length} parts…</span></nav>

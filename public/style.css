@@ -241,3 +241,33 @@ details.linkbox .pop p { margin: 0.5rem 0 0; font-size: 0.85rem; }
 
 /* Previous / next / contents on a part of a split document. */
 .parts { display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap; padding: 0.4rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+
+/* Print and Export PDF: the article and nothing else, always dark on white.
+   Without the forced light palette a dark-mode reader prints light text on
+   the white page, which is unreadable. */
+@media print {
+  :root {
+    color-scheme: light;
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --accent: #0969da;
+    --code-bg: #f6f8fa; --bar: #f6f8fa;
+    --info: #ddf4ff; --success: #dafbe1; --note: #fbefff; --warning: #fff8c5; --error: #ffebe9;
+  }
+  @page { margin: 16mm 14mm; }
+  body { font-size: 11pt; }
+  header.site, .stickyhead, .banner, .reviewfoot, [data-nocopy], .comment-add, .comment-form, .comments-panel, #toast, dialog { display: none !important; }
+  main { max-width: none; margin: 0; padding: 0; }
+  .markdown-body > :last-child { margin-bottom: 0; }
+  .mermaidTooltip { display: none !important; }
+  /* Panels, code and table headers keep their backgrounds. */
+  .markdown-body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Long lines wrap instead of running off the page edge. */
+  .markdown-body pre, .markdown-body pre code { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; }
+  .markdown-body table { max-width: 100%; }
+  .markdown-body td, .markdown-body th { overflow-wrap: anywhere; }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { break-after: avoid; page-break-after: avoid; }
+  .markdown-body pre, .markdown-body blockquote, .markdown-body tr, .markdown-body img, .markdown-alert, figure.mermaid-block { break-inside: avoid; page-break-inside: avoid; }
+  figure.mermaid-block { border: 0; padding: 0; }
+  figure.mermaid-block svg { max-width: 100% !important; height: auto; }
+  /* Review and search highlights are for the screen. */
+  ::highlight(clipmark-comment), ::highlight(clipmark-slop), ::highlight(clipmark-active), ::highlight(clipmark-search), ::highlight(clipmark-changed) { background: transparent; }
+}

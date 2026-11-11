@@ -28,6 +28,12 @@ Publishing is one HTTP request, every change is kept, and there is no database.
 - **Versioned.** Every publish that changes a note keeps the previous copy.
   History is browsable in the UI and the API, and old versions render like
   any other page.
+- **Export PDF.** The button on a note opens the browser's print dialog with
+  a preview of the note alone: no toolbar, comments or highlights, always dark
+  text on white, long code lines wrapped, collapsed sections opened and
+  diagrams kept as vector graphics. Choose **Save as PDF**; the file is named
+  after the note. On a split document's all-parts page it exports every part
+  as one PDF. Printing with Cmd/Ctrl+P gives the same result.
 - **Bulk download.** Tick notes on the index and download their Markdown as
   one `.zip`, folders and Mermaid blocks intact. `GET /export` does the same
   for the API and the CLI.
